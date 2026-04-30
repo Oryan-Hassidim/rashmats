@@ -1,0 +1,35 @@
+name: Deploy Admin App to Apps Script
+
+on:
+  push:
+    branches:
+      - main # שנה ל-master אם הענף הראשי שלך נקרא כך
+    paths:
+      - "src/**" # מפעיל את התהליך רק אם היו שינויים בקוד של השרת
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "25"
+
+      - name: Install Clasp
+        run: npm install -g @google/clasp
+
+      - name: Create Clasp Credentials
+        # פעולה זו לוקחת את הסוד מגיטהאב ויוצרת את קובץ ההתחברות בשרת הווירטואלי
+        run: |
+          echo '${{ secrets.CLASPRC_JSON }}' > ~/.clasprc.json
+
+      - name: Push to Apps Script
+        run: |
+          cd src
+          clasp push
