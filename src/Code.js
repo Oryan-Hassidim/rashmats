@@ -135,13 +135,13 @@ function editRows(tableName, updates) {
 
 
 function getIdentity() {
-    const email = Session.getActiveUser().getEmail();
+    const email = Session.getActiveUser().getEmail().toLowerCase();
     // check if email is in the cache
     const cache = CacheService.getUserCache();
     var identity = cache.get('identity');
     if (!identity) {
         const data = getData('הרשאות');
-        const row = data.find(row => row[0] === email);
+        const row = data.find(row => row[0].toLowerCase() === email);
         if (!row) {
             return null;
         }
@@ -157,10 +157,7 @@ function doGet(e) {
     if (!identity) {
         return HtmlService.createHtmlOutputFromFile('unauthorized');
     }
-    var page = e.parameter.page;
-    if (!page) {
-        page = 'dashboard';
-    }
+    var page = e.parameter.page || 'dashboard';
     // pages: 
     // - dashboard (דאשבוארד), 
     // - personnel (כוח אדם), 
@@ -168,5 +165,37 @@ function doGet(e) {
     // - qualifications (הסמכות ופק"לים), 
     // - handover (רישום העברה), 
     // - history (היסטוריה)
-    return HtmlService.createHtmlOutputFromFile(e.parameter.action);
+    try {
+        var template = HtmlService.createTemplateFromFile(page);
+        template.scriptUrl = ScriptApp.getService().getUrl();
+        return template.evaluate();
+    } catch (error) {
+        // טיפול במקרה שהקובץ לא קיים
+        return HtmlService.createHtmlOutput("הדף לא נמצא: " + page);
+    }
+}
+
+function include(filename) {
+    return HtmlService.createHtmlOutputFromFile(filename).getContent();
+}
+
+function navbar(activePage) {
+    const pages = [
+        { name: 'דאשבוארד', id: 'dashboard' },
+        { name: 'כוח אדם', id: 'personnel' },
+        { name: 'מסגרות', id: 'frames' },
+        { name: 'הסמכות ופק"לים', id: 'qualifications' },
+        { name: 'רישום העברה', id: 'handover' },
+        { name: 'היסטוריה', id: 'history' }
+    ];
+    const scriptUrl = ScriptApp.getService().getUrl();
+    return `
+    <nav>
+        <ul>
+            ${pages.map(page => `
+                <li><a href="${scriptUrl}?page=${page.id}" class="${page.id === activePage ? 'active' : ''}" target="_top">${page.name}</a></li>
+            `).join('')}
+        </ul>
+    </nav>
+    `;
 }

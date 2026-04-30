@@ -5,11 +5,138 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מסגרות</title>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <?!= include('CSS'); ?>
 </head>
 
 <body>
+    <?!= navbar('frames'); ?>
     <h1>מסגרות</h1>
+    <main x-data="vm()">
+        <button class="refresh-button" @click="updateData()">רענן</button>
+        <button class="open-add-frame" command="show-modal" commandfor="add-frame-dialog">מסגרת חדשה</button>
 
+        <dialog id="add-frame-dialog">
+            <h2>מסגרת חדשה</h2>
+            <p x-show="loading">טוען...</p>
+            <form @submit.prevent="addFrame" x-show="!loading">
+                <label>
+                    שם:
+                    <input type="text" x-model="newFrame.name" required>
+                </label>
+                <label>
+                    מזהה מפקד:
+                    <input type="number" x-model="newFrame.commanderId">
+                </label>
+                <button type="submit">הוסף</button>
+            </form>
+            <button commandfor="add-frame-dialog" command="close">Close</button>
+        </dialog>
+        <table>
+            <thead>
+                <tr>
+                    <th>
+                        <div>מזהה</div>
+                    </th>
+                    <th>
+                        <div>שם</div>
+                    </th>
+                    <th>
+                        <div>מפקד</div>
+                    </th>
+                </tr>
+            </thead>
+            <tbody x-show="!loading">
+                <template x-for="frame in frames" :key="frame.id">
+                    <tr>
+                        <td x-text="frame.id"></td>
+                        <td x-text="frame.name"></td>
+                        <td x-text="frame.commanderId"></td>
+                    </tr>
+                </template>
+            </tbody>
+            <tbody x-show="loading">
+                <tr>
+                    <td colspan="3" class="loading">טוען...</td>
+                </tr>
+            </tbody>
+        </table>
+        <template x-for="soldier in soldiers" :key="soldier.id">
+            <div>
+                <span x-text="soldier.id"></span>
+                <span x-text="soldier.name"></span>
+            </div>
+        </template>
+    </main>
 </body>
+
+<?!= include('JS'); ?>
+
+<script>
+    const FRAMES_STRING = 'מסגרות';
+    const SOLDIERS_STRING = 'כוח אדם';
+
+    function vm() {
+        //  *מסגרות*:
+        // - מזהה
+        // - שם
+        // - מזהה מפקד
+        return {
+            frames: [],
+            soldiers: [],
+            newFrame: {
+                id: -1,
+                name: '',
+                commanderId: -1,
+            },
+            loading: false,
+
+            init() {
+                this.updateData();
+            },
+            async updateData() {
+                this.loading = true;
+                try {
+                    const [frames, soldiers] = await Promise.all([
+                        server.getData(FRAMES_STRING),
+                        server.getData(SOLDIERS_STRING)
+                    ]);
+                    this.frames = frames.slice(1).map(frame => {
+                        return {
+                            id: frame[0],
+                            name: frame[1],
+                            commanderId: frame[2],
+                        };
+                    });
+                    this.newFrame.id = this.frames.length > 0 ? Math.max(...this.frames.map(f => f.id)) + 1 : 1;
+                    this.soldiers = soldiers.slice(1).map(soldier => {
+                        return {
+                            id: soldier[0],
+                            name: soldier[1] + ' ' + soldier[2],
+                        };
+                    });
+                } catch (error) {
+                    console.error('Error fetching frames:', error);
+                } finally {
+                    this.loading = false;
+                }
+            },
+            addFrame() {
+                if (!this.newFrame.name) {
+                    alert('אנא מלא את כל השדות');
+                    return;
+                }
+                this.loading = true;
+                google.script.run.withSuccessHandler(() => {
+                    this.newFrame.name = '';
+                    this.newFrame.commanderId = -1;
+                    this.updateData();
+                }).withFailureHandler((error) => {
+                    console.error('Error adding frame:', error);
+                }).appendRow(FRAMES_STRING, [this.newFrame.id, this.newFrame.name, this.newFrame.commanderId]);
+            },
+        };
+    }
+</script>
 
 </html>

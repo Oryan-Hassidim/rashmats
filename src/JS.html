@@ -1,0 +1,15 @@
+<script>
+    // יוצרים אובייקט 'server' חכם שעוטף את google.script.run
+    const server = new Proxy({}, {
+        get: function (target, prop) {
+            return function (...args) {
+                return new Promise((resolve, reject) => {
+                    google.script.run
+                        .withSuccessHandler(resolve)
+                        .withFailureHandler(reject)
+                    [prop](...args); // קורא לפונקציה המבוקשת עם הפרמטרים
+                });
+            };
+        }
+    });
+</script>
