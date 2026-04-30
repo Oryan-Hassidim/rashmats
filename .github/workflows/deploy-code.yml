@@ -33,3 +33,4 @@ jobs:
         run: |
           cd src
           clasp push
+          clasp deploy -i AKfycby8A3HfIOHvnZv5bkn3Dc1eT2pe-bpIL-ce0wOuxAgfN4NcNIMbKJX-yXrAW4s1pe1V3g -d TEST
