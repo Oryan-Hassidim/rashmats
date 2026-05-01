@@ -19,6 +19,15 @@
             form: { manager: null },
             init() {
                 this.form.manager = this.people[0]; // בחר את אליס כברירת מחדל
+
+                // after 3 seconds, change people list to simulate dynamic updates
+                setTimeout(() => {
+                    this.people = [
+                        { id: 'u1', name: 'אליס', toString() { return this.name; } },
+                        { id: 'u2', name: 'בוב' , toString() { return this.name; } },
+                        { id: 'u3', name: 'צ\'ארלי' , toString() { return this.name; } }
+                    ];
+                }, 5000);
             }
         }">
 

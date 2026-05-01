@@ -41,7 +41,7 @@ function injectStyles() {
 // ==========================================
 // 2. לוגיקת Alpine.js (מעודכנת לסנכרון דו-כיווני)
 // ==========================================
-function createCombobox(sourceList, displayProp) {
+function createCombobox(listFn, displayProp) {
     return {
         searchQuery: '',
         selectedItem: null,
@@ -68,10 +68,14 @@ function createCombobox(sourceList, displayProp) {
             });
         },
 
+        get sourceList() {
+            return listFn() || [];
+        },
+
         get filteredItems() {
             const query = String(this.searchQuery).trim().toLowerCase();
-            if (query === '') return sourceList;
-            return sourceList.filter(item => {
+            if (query === '') return this.sourceList;
+            return this.sourceList.filter(item => {
                 const text = String(displayProp ? item[displayProp] : item).toLowerCase();
                 return text.includes(query);
             });
@@ -104,7 +108,7 @@ function createCombobox(sourceList, displayProp) {
 
             // מציאת הפריט ברשימה כדי להציג את השם שלו בשורת החיפוש
             // משתמשים ב-String כדי להימנע מבעיות של מספר מול מחרוזת
-            const item = sourceList.find(i => i === externalItem);
+            const item = this.sourceList.find(i => i === externalItem);
             if (item) {
                 this.searchQuery = String(displayProp ? item[displayProp] : item);
             } else {
@@ -223,7 +227,7 @@ class AlpineCombobox extends HTMLElement {
         // בניית ה-DOM (ללא ה-hidden input!)
         this.innerHTML = `
                 <div 
-                    x-data="createCombobox(${listName}, ${displayProp ? `'${displayProp}'` : 'null'})" 
+                    x-data="createCombobox(() => (${listName}), ${displayProp ? `'${displayProp}'` : 'null'})" 
                     ${initDirective}
                     class="ac-wrapper"
                     @click.outside="popoverOpen = false"
