@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מסגרות</title>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script
+        src="https://raw.githubusercontent.com/Oryan-Hassidim/rashmats/refs/heads/main/try/alpine-combobox.js"></script>
     <?!= include('CSS'); ?>
 </head>
 
@@ -26,7 +28,9 @@
                 </label>
                 <label>
                     מזהה מפקד:
-                    <input type="number" x-model="newFrame.commanderId">
+                    <alpine-combobox list="soldiers" selected-item="newFrame.commander" key-prop="id"
+                        display-prop="name" placeholder="בחר מפקד...">
+                    </alpine-combobox>
                 </label>
                 <button type="submit">הוסף</button>
             </form>
@@ -51,7 +55,7 @@
                     <tr>
                         <td x-text="frame.id"></td>
                         <td x-text="frame.name"></td>
-                        <td x-text="frame.commanderId"></td>
+                        <td x-text="soldiers[frame.commanderId]?.name || frame.commanderId"></td>
                     </tr>
                 </template>
             </tbody>
@@ -83,11 +87,11 @@
         // - מזהה מפקד
         return {
             frames: [],
-            soldiers: [],
+            soldiers: {},
             newFrame: {
                 id: -1,
                 name: '',
-                commanderId: -1,
+                commander: null,
             },
             loading: false,
 
@@ -114,7 +118,10 @@
                             id: soldier[0],
                             name: soldier[1] + ' ' + soldier[2],
                         };
-                    });
+                    }).reduce((acc, soldier) => {
+                        acc[soldier.id] = soldier;
+                        return acc;
+                    }, {});
                 } catch (error) {
                     console.error('Error fetching frames:', error);
                 } finally {
@@ -129,11 +136,11 @@
                 this.loading = true;
                 google.script.run.withSuccessHandler(() => {
                     this.newFrame.name = '';
-                    this.newFrame.commanderId = -1;
+                    this.newFrame.commander = null;
                     this.updateData();
                 }).withFailureHandler((error) => {
                     console.error('Error adding frame:', error);
-                }).appendRow(FRAMES_STRING, [this.newFrame.id, this.newFrame.name, this.newFrame.commanderId]);
+                }).appendRow(FRAMES_STRING, [this.newFrame.id, this.newFrame.name, this.newFrame.commander?.id || null]);
             },
         };
     }
