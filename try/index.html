@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="alpine-combobox.js"></script>
+    <title>Document</title>
+</head>
+
+<body>
+
+    <div x-data="{ 
+            people: [
+                { id: 'u1', name: 'אליס', toString() { return this.name; } },
+                { id: 'u2', name: 'בוב' , toString() { return this.name; } }
+            ],
+            form: { manager: null },
+            init() {
+                this.form.manager = this.people[0]; // בחר את אליס כברירת מחדל
+            }
+        }">
+
+        <!-- האלמנט נקשר ישירות ל-form.manager -->
+        <alpine-combobox list="people" selected-item="form.manager" key-prop="id" placeholder="בחר מנהל...">
+        </alpine-combobox>
+
+        <!-- תוכל לראות שזה מתעדכן בזמן אמת! -->
+        <p>מזהה המנהל הנבחר הוא: <strong x-text="form.manager.name"></strong></p>
+
+        <!-- ואם תשנה את הערך פה, ה-Combobox יתעדכן ויציג 'אליס' אוטומטית! -->
+        <button @click="form.manager = people[0]">בחר באליס מבחוץ</button>
+    </div>
+
+</body>
+
+</html>
