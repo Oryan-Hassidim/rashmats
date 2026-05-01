@@ -90,8 +90,8 @@ function createCombobox(listFn, displayProp) {
                 this.searchQuery = '';
             }
 
-            this.popoverOpen = false;
             this.$refs.searchInput.blur();
+            this.popoverOpen = false;
         },
 
         // פונקציה חדשה: סנכרון מערך חיצוני לתוך הרכיב
