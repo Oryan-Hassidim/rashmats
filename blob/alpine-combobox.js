@@ -173,12 +173,6 @@ function createCombobox(listFn, displayProp) {
             }
         },
 
-        escape(e) {
-            e.preventDefault();
-            this.popoverOpen = false;
-            this.highlightedIndex = -1;
-        },
-
         // מבטיח שהפריט המואר יהיה גלוי לעין בתוך גלילת ה-Popover
         scrollToHighlighted() {
             this.$nextTick(() => {
@@ -237,7 +231,7 @@ class AlpineCombobox extends HTMLElement {
                     ${initDirective}
                     class="ac-wrapper"
                     @click.outside="popoverOpen = false"
-                    @keydown.escape="escape()"
+                    @keydown.escape.prevent="popoverOpen = false"
                     x-ref="wrapper"
                 >
                     <input 
