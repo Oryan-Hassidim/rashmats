@@ -102,6 +102,7 @@ function appendRow(tableName, row) {
 }
 
 function editRows(tableName, updates) {
+    // updates = [{מזהה: 1, שם: 'new name', מזהה מפקד: 2}, ...]
     const lock = LockService.getDocumentLock();
     try {
         lock.waitLock(30000);
@@ -123,6 +124,27 @@ function editRows(tableName, updates) {
             }
             sheet.getRange(rowIndex + 1, 1, 1, row.length).setValues([row]);
         });
+        return true;
+    } catch (e) {
+        Logger.log('Could not obtain lock: ' + e);
+        return false;
+    }
+    finally {
+        lock.releaseLock();
+    }
+}
+
+function deleteRow(tableName, id) {
+    const lock = LockService.getDocumentLock();
+    try {
+        lock.waitLock(30000);
+        const sheet = SpreadsheetApp.getActive().getSheetByName(tableName);
+        const data = sheet.getDataRange().getValues();
+        const rowIndex = data.findIndex(row => row[0] === id);
+        if (rowIndex === -1) {
+            throw new Error(`Row with id ${id} not found in table ${tableName}`);
+        }
+        sheet.deleteRow(rowIndex + 1);
         return true;
     } catch (e) {
         Logger.log('Could not obtain lock: ' + e);
