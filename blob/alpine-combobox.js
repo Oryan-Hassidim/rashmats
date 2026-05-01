@@ -91,7 +91,7 @@ function createCombobox(listFn, displayProp) {
             }
 
             this.popoverOpen = false;
-            this.$refs.searchInput.blur();
+            this.$refs.wrapper.blur();
         },
 
         // פונקציה חדשה: סנכרון מערך חיצוני לתוך הרכיב
@@ -232,6 +232,7 @@ class AlpineCombobox extends HTMLElement {
                     class="ac-wrapper"
                     @click.outside="popoverOpen = false"
                     @keydown.escape="popoverOpen = false"
+                    x-ref="wrapper"
                 >
                     <input 
                         type="text" 

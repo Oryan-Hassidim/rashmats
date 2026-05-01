@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>מסגרות</title>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://oryan-hassidim.github.io/rashmats/blob/alpine-combobox.js"></script>
+    <script src="https://oryan-hassidim.github.io/rashmats/blob/alpine-combobox.js?a"></script>
     <?!= include('CSS'); ?>
 </head>
 
@@ -112,18 +112,15 @@
                         };
                     });
                     this.newFrame.id = this.frames.length > 0 ? Math.max(...this.frames.map(f => f.id)) + 1 : 1;
-                    // clear soldiers and re-populate, but save the same object reference for reactivity
-                    this.soldiers.clear();
-                    this.soldiers.push(...
-                        soldiers.slice(1).map(soldier => {
-                            return {
-                                id: soldier[0],
-                                name: soldier[1] + ' ' + soldier[2],
-                            };
-                        }).reduce((acc, soldier) => {
-                            acc[soldier.id] = soldier;
-                            return acc;
-                        }, {}));
+                    this.soldiers = soldiers.slice(1).map(soldier => {
+                        return {
+                            id: soldier[0],
+                            name: soldier[1] + ' ' + soldier[2],
+                        };
+                    }).reduce((acc, soldier) => {
+                        acc[soldier.id] = soldier;
+                        return acc;
+                    }, {});
                 } catch (error) {
                     console.error('Error fetching frames:', error);
                 } finally {
