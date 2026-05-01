@@ -265,14 +265,14 @@ class AlpineCombobox extends HTMLElement {
                         class="ac-popover"
                     >
                         <ul class="ac-list">
-                            <li @click="selectItem(null)" class="ac-item ac-item-none"
+                            <li @click.prevent.stop="selectItem(null)" class="ac-item ac-item-none"
                                 @mouseenter="highlightedIndex = 0"
                                 :class="{'ac-item-highlighted': highlightedIndex === 0}">
                                 ללא בחירה
                             </li>
                             
                             <template x-for="(item, index) in filteredItems" ${keyProp ? `:key="item.${keyProp}"` : ''}>
-                                <li @click="selectItem(item)" class="ac-item"
+                                <li @click.prevent.stop="selectItem(item)" class="ac-item"
                                     @mouseenter="highlightedIndex = index + 1"
                                     :class="{'ac-item-highlighted': highlightedIndex === index + 1}">
                                     ${itemTemplate}
