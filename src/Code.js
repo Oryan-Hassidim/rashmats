@@ -1,6 +1,10 @@
+/**
+ * @OnlyCurrentDoc
+ */
+
 
 function test() {
-
+    Logger.log(Users());
 }
 
 const ID_STRING = 'מזהה';
@@ -25,27 +29,31 @@ const ID_STRING = 'מזהה';
 - מספר נייד
 - מזהה מסגרת
 - תפקיד
-- פעיל
-- נמצא
-- M16
-- מפרו
-- עכבר
-- אקילה
-- חולצת ב'
-- מכנסי ב'
-- כובע ב'
-- חגורה
-- שק"ש
+- הסמכות
+- סטטוס
+- 1
+- 2
+- 3
+- 4
+- 5
+- 6
 
 *הסמכות ופק"לים*:
 - מזהה
 - שם
 
+*ציוד*:
+- מזהה
+- שם
+- קטגוריה
+- תקן
+
 *צל"ם*:
 - מזהה
 - סוג
 - שיוך
-- מחזיק
+- מיקום
+- קטגוריה
 - שינוי אחרון
 
 *היסטוריה*:
@@ -59,6 +67,10 @@ const ID_STRING = 'מזהה';
 - כמות מקבל אחרי
 - סיבה
 - הערות
+
+*סט החתמה*:
+- מזהה
+- סט
 
 */
 
@@ -155,20 +167,36 @@ function deleteRow(tableName, id) {
     }
 }
 
+function Users() {
+    return [Session.getActiveUser().getEmail(), Session.getEffectiveUser().getEmail()];
+}
 
 function getIdentity() {
+    // CacheService.getUserCache().remove('identity');
     const email = Session.getActiveUser().getEmail().toLowerCase();
     // check if email is in the cache
     const cache = CacheService.getUserCache();
     var identity = cache.get('identity');
-    if (!identity) {
+    if (identity)
+        identity = JSON.parse(identity);
+    else {
         const data = getData('הרשאות');
         const row = data.find(row => row[0].toLowerCase() === email);
         if (!row) {
+            Logger.log(`Unauthorized access attempt by ${email}`);
             return null;
         }
-        identity = row[1];
-        cache.put('identity', identity, 3600);
+        const id = row[1];
+        const soldier = getDataById('כוח אדם', id);
+        if (!soldier) {
+            Logger.log(`No soldier found for user ${email} with id ${id}`);
+        }
+        identity = {
+            email,
+            id,
+            name: soldier ? `${soldier[1]} ${soldier[2]}` : 'Unknown',
+        };
+        cache.put('identity', JSON.stringify(identity), 3600); // cache for 1 hour
     }
     return identity;
 }
@@ -208,9 +236,11 @@ function navbar(activePage) {
         { name: 'מסגרות', id: 'frames' },
         { name: 'הסמכות ופק"לים', id: 'qualifications' },
         { name: 'רישום העברה', id: 'handover' },
-        { name: 'היסטוריה', id: 'history' }
+        { name: 'היסטוריה', id: 'history' },
+        { name: 'סטים להחתמה', id: 'presets' },
     ];
     const scriptUrl = ScriptApp.getService().getUrl();
+    const identity = getIdentity();
     return `
     <nav>
         <ul>
@@ -218,6 +248,7 @@ function navbar(activePage) {
                 <li><a href="${scriptUrl}?page=${page.id}" class="${page.id === activePage ? 'active' : ''}" target="_top">${page.name}</a></li>
             `).join('')}
         </ul>
+        <span class="user">שלום ${identity.name}!</span>
     </nav>
     `;
 }

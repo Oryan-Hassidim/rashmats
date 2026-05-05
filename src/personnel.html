@@ -4,13 +4,167 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <script src="https://oryan-hassidim.github.io/rashmats/blob/alpine-combobox.js?c"></script>
+    <?!= include('CSS'); ?>
     <title>כוח אדם</title>
 </head>
 
 <body>
     <?!= navbar('personnel'); ?>
     <h1>כוח אדם</h1>
+    <main x-data="vm()">
 
+    </main>
 </body>
+
+<?!= include('JS'); ?>
+
+<script>
+
+    /*
+    
+    *מסגרות*:
+    - מזהה
+    - שם
+    - מזהה מפקד
+    
+    *כוח אדם*:
+    - מזהה
+    - שם פרטי
+    - שם משפחה
+    - מספר נייד
+    - מזהה מסגרת
+    - תפקיד
+    - הסמכות
+    - סטטוס
+    - 1
+    - 2
+    - 3
+    - 4
+    - 5
+    - 6
+    
+    *הסמכות ופק"לים*:
+    - מזהה
+    - שם
+    
+    *ציוד*:
+    - מזהה
+    - שם
+    - קטגוריה
+    - תקן
+    
+    *צל"ם*:
+    - מזהה
+    - סוג
+    - שיוך
+    - מיקום
+    - קטגוריה
+    - שינוי אחרון
+    
+    */
+
+    function vm() {
+        return {
+            frames: [],
+            headers: [],
+            soldiers: [],
+            qualifications: [],
+            equipment: [],
+            zelem: [],
+            selectedSoldier: {
+                id: -1,
+                name: '',
+                rank: '',
+                frame: null,
+                commander: null,
+                qualifications: [],
+                equipment: []
+            },
+            qategories: [],
+            search: '',
+            loading: true,
+
+            async init() {
+                await this.updateData();
+            },
+
+            async updateData() {
+                this.loading = true;
+                try {
+                    const [frames, soldiers, qualifications, equipment, zelem] = await Promise.all([
+                        server.getData('מסגרות'),
+                        server.getData('כוח אדם'),
+                        server.getData('הסמכות ופק"לים'),
+                        server.getData('ציוד'),
+                        server.getData('צל"ם'),
+                    ]);
+                    this.frames = frames.slice(1).map(frame => {
+                        return {
+                            id: frame[0],
+                            name: frame[1],
+                        };
+                    });
+                    this.qualifications = qualifications.slice(1).map(q => {
+                        return {
+                            id: q[0],
+                            name: q[1]
+                        };
+                    });
+                    this.equipment = equipment.slice(1).map(eq => {
+                        return {
+                            id: eq[0],
+                            name: eq[1],
+                            category: eq[2],
+                            standard: eq[3]
+                        };
+                    });
+                    const equipmentMap = this.equipment.reduce((map, eq) => {
+                        map[eq.id] = eq;
+                        return map;
+                    }, {});
+                    this.headers = soldiers[0].slice(8);
+                    this.soldiers = soldiers.slice(1).map(s => {
+                        return {
+                            id: s[0],
+                            firstName: s[1],
+                            lastName: s[2],
+                            phone: s[3],
+                            frame: s[4] ? this.frames.find(f => f.id === s[4]) || null : null,
+                            role: s[5],
+                            status: s[6],
+                            qualifications: s[7] ? s[7].split(',').map(qId => this.qualifications.find(q => q.id === qId)).filter(q => q) : [],
+                            // make equipment an array with same length as headers, where each item is the count of that equipment
+                            equipment: this.headers.map((_, index) => {
+                                const count = s[8 + index];
+                                return count ? count : 0;
+                            })
+                        };
+                    });
+                    const soldiersMap = this.soldiers.reduce((map, soldier) => {
+                        map[soldier.id] = soldier;
+                        return map;
+                    }, {});
+                    this.zelem = zelem.slice(1).map(z => {
+                        return {
+                            id: z[0],
+                            type: z[1],
+                            affiliation: z[2] ? soldiersMap[z[2]] : null,
+                            location: z[3] ? (soldiersMap[z[3]] || z[3]) : null,
+                            category: z[4],
+                            lastChange: new Date(z[5]),
+                        };
+                    });
+                } catch (error) {
+                    console.error('Error fetching data:', error);
+                } finally {
+                    this.loading = false;
+                }
+            }
+
+        };
+    }
+</script>
 
 </html>

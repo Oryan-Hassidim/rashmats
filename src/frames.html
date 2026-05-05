@@ -12,26 +12,26 @@
 
 <body>
     <?!= navbar('frames'); ?>
-    <h1>מסגרות</h1>
     <main x-data="vm()">
+        <h1>מסגרות</h1>
         <button class="refresh-button" @click="updateData()">רענן</button>
         <button class="open-add-frame" @click="addFrame">מסגרת חדשה</button>
 
         <dialog id="edit-frame-dialog" x-ref="editFrameDialog">
-            <h2 x-text="newFrame.id === -1 ? 'מסגרת חדשה' : 'ערוך מסגרת'"></h2>
+            <h2 x-text="selectedFrame.id === -1 ? 'מסגרת חדשה' : 'ערוך מסגרת'"></h2>
             <p x-show="loading">טוען...</p>
             <form @submit.prevent="submitFrame" x-show="!loading">
                 <label>
                     שם:
-                    <input type="text" x-model="newFrame.name" required>
+                    <input type="text" x-model="selectedFrame.name" required>
                 </label>
                 <label>
                     מזהה מפקד:
-                    <alpine-combobox list="soldiers" selected-item="newFrame.commander" key-prop="id"
+                    <alpine-combobox list="soldiers" selected-item="selectedFrame.commander" key-prop="id"
                         display-prop="name" placeholder="בחר מפקד...">
                     </alpine-combobox>
                 </label>
-                <button type="submit" x-text="newFrame.id === -1 ? 'הוסף' : 'שמור'"></button>
+                <button type="submit" x-text="selectedFrame.id === -1 ? 'הוסף' : 'שמור'"></button>
             </form>
             <button commandfor="edit-frame-dialog" command="close">Close</button>
         </dialog>
@@ -104,12 +104,17 @@
         return {
             frames: [],
             soldiers: [],
-            newFrame: {
+            selectedFrame: {
                 id: -1,
                 name: '',
                 commander: null,
             },
             loading: false,
+            identity: {
+                email: null,
+                id: null,
+                name: null
+            },
 
             async init() {
                 await this.updateData();
@@ -144,16 +149,16 @@
             },
 
             async submitFrame() {
-                console.log('Submitting frame:', this.newFrame);
-                if (!this.newFrame.name) {
+                console.log('Submitting frame:', this.selectedFrame);
+                if (!this.selectedFrame.name) {
                     alert('אנא מלא את כל השדות');
                     return;
                 }
                 this.loading = true;
-                if (this.newFrame.id === -1) {
+                if (this.selectedFrame.id === -1) {
                     try {
-                        this.newFrame.id = this.frames.length > 0 ? Math.max(...this.frames.map(f => f.id)) + 1 : 1;
-                        await server.appendRow(FRAMES_STRING, [this.newFrame.id, this.newFrame.name, this.newFrame.commander?.id || null]);
+                        this.selectedFrame.id = this.frames.length > 0 ? Math.max(...this.frames.map(f => f.id)) + 1 : 1;
+                        await server.appendRow(FRAMES_STRING, [this.selectedFrame.id, this.selectedFrame.name, this.selectedFrame.commander?.id || null]);
                     } catch (error) {
                         console.error('Error adding frame: ' + error);
                         return;
@@ -163,9 +168,9 @@
                 } else {
                     try {
                         const update = {
-                            [ID_STRING]: this.newFrame.id,
-                            [NAME_STRING]: this.newFrame.name,
-                            [COMMANDER_ID_STRING]: this.newFrame.commander?.id || null
+                            [ID_STRING]: this.selectedFrame.id,
+                            [NAME_STRING]: this.selectedFrame.name,
+                            [COMMANDER_ID_STRING]: this.selectedFrame.commander?.id || null
                         };
                         console.log('Updating frame with data:', update);
                         await server.editRows(FRAMES_STRING, [update]);
@@ -177,13 +182,14 @@
                     }
                 }
                 this.$refs.editFrameDialog.close();
-                this.newFrame.name = '';
-                this.newFrame.commander = null;
+                this.selectedFrame.id = -1;
+                this.selectedFrame.name = '';
+                this.selectedFrame.commander = null;
                 await this.updateData();
             },
 
             addFrame() {
-                this.newFrame = {
+                this.selectedFrame = {
                     id: -1,
                     name: '',
                     commander: null,
@@ -192,7 +198,7 @@
             },
 
             editFrame(frame) {
-                this.newFrame = { ...frame };
+                this.selectedFrame = { ...frame };
                 this.$refs.editFrameDialog.showModal();
             },
 
