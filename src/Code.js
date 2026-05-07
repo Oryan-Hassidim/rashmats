@@ -8,6 +8,15 @@ function test() {
 }
 
 const ID_STRING = 'מזהה';
+const PAGES = [
+    { name: 'דאשבוארד', id: 'dashboard' },
+    { name: 'מסגרות', id: 'frames' },
+    { name: 'כוח אדם', id: 'personnel' },
+    { name: 'צל"ם', id: 'zelem' },
+    { name: 'רישום העברה', id: 'handover' },
+    { name: 'היסטוריה', id: 'history' },
+    { name: 'סטים להחתמה', id: 'presets' },
+];
 
 /*
 
@@ -37,10 +46,6 @@ const ID_STRING = 'מזהה';
 - חגורה※ציוד ב'※80
 - שק"ש※ציוד ב'※100
 - ברכיות※תרומה※80
-
-*הסמכות ופק"לים*:
-- מזהה
-- שם
 
 *צל"ם*:
 - מזהה
@@ -184,6 +189,7 @@ function getIdentity() {
         const soldier = getDataById('כוח אדם', id);
         if (!soldier) {
             Logger.log(`No soldier found for user ${email} with id ${id}`);
+            return null;
         }
         identity = {
             email,
@@ -202,17 +208,10 @@ function doGet(e) {
         return HtmlService.createHtmlOutputFromFile('unauthorized');
     }
     var page = e.parameter.page || 'dashboard';
-    // pages: 
-    // - dashboard (דאשבוארד), 
-    // - personnel (כוח אדם), 
-    // - frames (מסגרות), 
-    // - qualifications (הסמכות ופק"לים), 
-    // - handover (רישום העברה), 
-    // - history (היסטוריה)
     try {
         var template = HtmlService.createTemplateFromFile(page);
         template.scriptUrl = ScriptApp.getService().getUrl();
-        return template.evaluate();
+        return template.evaluate().setTitle(PAGES.find(p => p.id === page)?.name || 'רשמ"צ');
     } catch (error) {
         // טיפול במקרה שהקובץ לא קיים
         return HtmlService.createHtmlOutput("הדף לא נמצא: " + page);
@@ -224,25 +223,16 @@ function include(filename) {
 }
 
 function navbar(activePage) {
-    const pages = [
-        { name: 'דאשבוארד', id: 'dashboard' },
-        { name: 'כוח אדם', id: 'personnel' },
-        { name: 'מסגרות', id: 'frames' },
-        { name: 'הסמכות ופק"לים', id: 'qualifications' },
-        { name: 'רישום העברה', id: 'handover' },
-        { name: 'היסטוריה', id: 'history' },
-        { name: 'סטים להחתמה', id: 'presets' },
-    ];
     const scriptUrl = ScriptApp.getService().getUrl();
     const identity = getIdentity();
     return `
     <nav>
         <ul>
-            ${pages.map(page => `
-                <li><a href="${scriptUrl}?page=${page.id}" class="${page.id === activePage ? 'active' : ''}" target="_top">${page.name}</a></li>
+            ${PAGES.map(page => `
+                <li class="${page.id === activePage ? 'active' : ''}"><a href="${scriptUrl}?page=${page.id}" target="_top">${page.name}</a></li>
             `).join('')}
         </ul>
-        <span class="user">שלום ${identity.name}!</span>
+        <span class="user">שלום <strong>${identity.name}</strong>!</span>
     </nav>
     `;
 }

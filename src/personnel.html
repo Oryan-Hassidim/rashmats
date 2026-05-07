@@ -8,13 +8,130 @@
     <script src="https://oryan-hassidim.github.io/rashmats/blob/alpine-combobox.js?c"></script>
     <?!= include('CSS'); ?>
     <title>כוח אדם</title>
+    <style>
+        .qualifications {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
+        .qualifications span {
+            background-color: #eee;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }
+
+        tbody tr {
+            cursor: pointer;
+
+            &.selected {
+                background-color: #def;
+            }
+        }
+    </style>
 </head>
 
 <body>
     <?!= navbar('personnel'); ?>
-    <h1>כוח אדם</h1>
     <main x-data="vm()">
-
+        <h1>כוח אדם</h1>
+        <button @click="updateData">רענן נתונים</button>
+        <div>
+            <span>סינון לפי קטגוריות:</span>
+            <template x-for="category in Object.values(categories)" :key="category.name">
+                <label>
+                    <input type="checkbox" x-model="category.view">
+                    <span x-text="category.name"></span>
+                </label>
+            </template>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>
+                        <div>לחצנים</div>
+                    </th>
+                    <th>
+                        <div>מספר אישי</div>
+                    </th>
+                    <th>
+                        <div>שם פרטי</div>
+                    </th>
+                    <th>
+                        <div>שם משפחה</div>
+                    </th>
+                    <th>
+                        <div>מסגרת</div>
+                    </th>
+                    <th>
+                        <div>תפקיד</div>
+                    </th>
+                    <th>
+                        <div>הסמכות</div>
+                    </th>
+                    <th>
+                        <div>סטטוס</div>
+                    </th>
+                    <template x-for="header in equipmentHeaders.filter(h => categories[h.category]?.view)"
+                        :key="header.name">
+                        <th>
+                            <div
+                                x-data="{ count: filteredSoldiers.map(s => s.equipment[header.name] || 0).reduce((a, b) => a + b, 0) }">
+                                <span x-text="header.name"></span>
+                                <br>
+                                <span dir="ltr"
+                                    x-text="`${count}${header.standard ? `/${header.standard} (${count/header.standard * 100 || 0}%)`: ''}`"></span>
+                            </div>
+                        </th>
+                    </template>
+                    <template x-for="header in zelemHeaders.filter(h => categories[h.category]?.view)"
+                        :key="header.name">
+                        <th>
+                            <div>
+                                <span x-text="header.name"></span>
+                                <br>
+                                <span dir="ltr"
+                                    x-text="filteredSoldiers.map(s => s.zelem.filter(z => z.type === header.name).length).reduce((a, b) => a + b, 0)"></span>
+                            </div>
+                        </th>
+                    </template>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="soldier in filteredSoldiers" :key="soldier.id">
+                    <tr @click="selectedSoldier = soldier" :class="{ 'selected': selectedSoldier.id === soldier.id }">
+                        <td>
+                            <button @click.stop="edit(soldier)">ערוך</button>
+                            <button @click.stop="delete(soldier)">מחק</button>
+                        </td>
+                        <td x-text="soldier.id"></td>
+                        <td x-text="soldier.firstName"></td>
+                        <td x-text="soldier.lastName"></td>
+                        <td x-text="soldier.frame ? soldier.frame.name : ''"></td>
+                        <td x-text="soldier.role"></td>
+                        <td class="qualifications">
+                            <template x-for="qualification in soldier.qualifications" :key="qualification">
+                                <span x-text="qualification"></span>
+                            </template>
+                        </td>
+                        <td x-text="soldier.status"></td>
+                        <template x-for="header in equipmentHeaders.filter(h => categories[h.category]?.view)"
+                            :key="header.name">
+                            <td x-text="soldier.equipment[header.name] || 0"></td>
+                        </template>
+                        <template x-for="header in zelemHeaders.filter(h => categories[h.category]?.view)"
+                            :key="header.name">
+                            <td>
+                                <template x-for="z in soldier.zelem.filter(z => z.type === header.name)" :key="z.id">
+                                    <div x-text="z.id"></div>
+                                </template>
+                            </td>
+                        </template>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
     </main>
 </body>
 
@@ -24,52 +141,43 @@
 
     /*
     
-*מסגרות*:
-- מזהה
-- שם
-- מזהה מפקד
+    *מסגרות*:
+    - מזהה
+    - שם
+    - מזהה מפקד
 
-*כוח אדם*:
-- מזהה
-- שם פרטי
-- שם משפחה
-- מספר נייד
-- מזהה מסגרת
-- תפקיד
-- הסמכות
-- סטטוס
-- חולצת ב'※ציוד ב'※160
-- מכנסי ב'※ציוד ב'※160
-- כובע ב'※ציוד ב'※80
-- חגורה※ציוד ב'※80
-- שק"ש※ציוד ב'※100
-- ברכיות※תרומה※80
+    *כוח אדם*:
+    - מזהה
+    - שם פרטי
+    - שם משפחה
+    - מספר נייד
+    - מזהה מסגרת
+    - תפקיד
+    - הסמכות
+    - סטטוס
+    - חולצת ב'※ציוד ב'※160
+    - מכנסי ב'※ציוד ב'※160
+    - כובע ב'※ציוד ב'※80
+    - חגורה※ציוד ב'※80
+    - שק"ש※ציוד ב'※100
+    - ברכיות※תרומה※80
 
-*הסמכות ופק"לים*:
-- מזהה
-- שם
-
-*צל"ם*:
-- מזהה
-- סוג
-- שיוך
-- מיקום
-- קטגוריה
-- שינוי אחרון
-
-*סט החתמה*:
-- מזהה
-- סט
+    *צל"ם*:
+    - מזהה
+    - סוג
+    - שיוך
+    - מיקום
+    - קטגוריה
+    - שינוי אחרון
     
     */
 
     function vm() {
         return {
             frames: [],
-            headers: [],
+            equipmentHeaders: [],
+            zelemHeaders: [],
             soldiers: [],
-            qualifications: [],
-            equipment: [],
             zelem: [],
             selectedSoldier: {
                 id: -1,
@@ -80,8 +188,7 @@
                 qualifications: [],
                 equipment: []
             },
-            qategories: [],
-            search: '',
+            categories: {},
             loading: true,
 
             async init() {
@@ -91,11 +198,9 @@
             async updateData() {
                 this.loading = true;
                 try {
-                    const [frames, soldiers, qualifications, equipment, zelem] = await Promise.all([
+                    const [frames, soldiers, zelem] = await Promise.all([
                         server.getData('מסגרות'),
                         server.getData('כוח אדם'),
-                        server.getData('הסמכות ופק"לים'),
-                        server.getData('ציוד'),
                         server.getData('צל"ם'),
                     ]);
                     this.frames = frames.slice(1).map(frame => {
@@ -104,25 +209,14 @@
                             name: frame[1],
                         };
                     });
-                    this.qualifications = qualifications.slice(1).map(q => {
+                    this.equipmentHeaders = soldiers[0].slice(8).map(h => {
+                        const [name, category, standard] = h.split('※');
                         return {
-                            id: q[0],
-                            name: q[1]
+                            name,
+                            category,
+                            standard,
                         };
                     });
-                    this.equipment = equipment.slice(1).map(eq => {
-                        return {
-                            id: eq[0],
-                            name: eq[1],
-                            category: eq[2],
-                            standard: eq[3]
-                        };
-                    });
-                    const equipmentMap = this.equipment.reduce((map, eq) => {
-                        map[eq.id] = eq;
-                        return map;
-                    }, {});
-                    this.headers = soldiers[0].slice(8);
                     this.soldiers = soldiers.slice(1).map(s => {
                         return {
                             id: s[0],
@@ -131,13 +225,13 @@
                             phone: s[3],
                             frame: s[4] ? this.frames.find(f => f.id === s[4]) || null : null,
                             role: s[5],
-                            status: s[6],
-                            qualifications: s[7] ? s[7].split(',').map(qId => this.qualifications.find(q => q.id === qId)).filter(q => q) : [],
-                            // make equipment an array with same length as headers, where each item is the count of that equipment
-                            equipment: this.headers.map((_, index) => {
-                                const count = s[8 + index];
-                                return count ? count : 0;
-                            })
+                            qualifications: s[6] ? s[6].split(',').filter(q => q) : [],
+                            status: s[7],
+                            equipment: this.equipmentHeaders.reduce((eq, header, index) => {
+                                eq[header.name] = s[8 + index] || null;
+                                return eq;
+                            }, {}),
+                            zelem: [],
                         };
                     });
                     const soldiersMap = this.soldiers.reduce((map, soldier) => {
@@ -151,16 +245,45 @@
                             affiliation: z[2] ? soldiersMap[z[2]] : null,
                             location: z[3] ? (soldiersMap[z[3]] || z[3]) : null,
                             category: z[4],
-                            lastChange: new Date(z[5]),
+                            lastChange: Date.parse(z[5]),
                         };
                     });
+                    // append unique zelem types to headers, sorted by frequency
+                    const uniqueTypes = [...new Set(this.zelem.map(z => z.type))];
+                    uniqueTypes.sort((a, b) => {
+                        const countA = this.zelem.filter(z => z.type === a).length;
+                        const countB = this.zelem.filter(z => z.type === b).length;
+                        return countB - countA;
+                    });
+                    this.zelemHeaders = uniqueTypes.map(type => {
+                        return {
+                            name: type,
+                            category: this.zelem.find(z => z.type === type)?.category || 'ללא',
+                        };
+                    });
+                    this.soldiers.forEach(soldier => {
+                        soldier.zelem = this.zelem.filter(z => z.affiliation?.id === soldier.id);
+                    });
+                    this.categories = [...new Set(this.equipmentHeaders.map(h => h.category).concat(this.zelemHeaders.map(h => h.category)))].map(name => {
+                        return {
+                            name,
+                            view: true,
+                        };
+                    }).reduce((map, category) => {
+                        map[category.name] = category;
+                        return map;
+                    }, {});
                 } catch (error) {
                     console.error('Error fetching data:', error);
                 } finally {
+                    console.log('Data loaded', this);
                     this.loading = false;
                 }
-            }
+            },
 
+            get filteredSoldiers() {
+                return this.soldiers;
+            },
         };
     }
 </script>
