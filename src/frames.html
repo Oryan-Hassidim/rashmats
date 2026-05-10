@@ -14,16 +14,16 @@
     <?!= navbar('frames'); ?>
     <main x-data="vm()">
         <h1>מסגרות</h1>
-        <button class="refresh-button" @click="updateData()">רענן</button>
-        <button class="open-add-frame" @click="addFrame">מסגרת חדשה</button>
+        <button class="refresh-button" @click="updateData">רענן</button>
+        <button class="add-button" @click="addFrame">מסגרת חדשה</button>
 
-        <dialog id="edit-frame-dialog" x-ref="editFrameDialog">
+        <dialog id="edit-item-dialog" x-ref="editFrameDialog">
             <h2 x-text="selectedFrame.id === -1 ? 'מסגרת חדשה' : 'ערוך מסגרת'"></h2>
             <p x-show="loading">טוען...</p>
             <form @submit.prevent="submitFrame" x-show="!loading">
                 <label>
                     שם:
-                    <input type="text" x-model="selectedFrame.name" required>
+                    <input name="name" type="text" x-model="selectedFrame.name" required>
                 </label>
                 <label>
                     מזהה מפקד:

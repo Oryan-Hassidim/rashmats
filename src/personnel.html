@@ -9,17 +9,22 @@
     <?!= include('CSS'); ?>
     <title>כוח אדם</title>
     <style>
-        .qualifications {
+        .qualifications-list,
+        .zelem-list {
             display: flex;
             flex-wrap: wrap;
             gap: 4px;
+
+            span {
+                background-color: #eee;
+                padding: 2px 6px;
+                border-radius: 4px;
+                font-size: 0.9em;
+            }
         }
 
-        .qualifications span {
-            background-color: #eee;
-            padding: 2px 6px;
-            border-radius: 4px;
-            font-size: 0.9em;
+        table {
+            overflow-x: auto;
         }
 
         tbody tr {
@@ -36,7 +41,87 @@
     <?!= navbar('personnel'); ?>
     <main x-data="vm()">
         <h1>כוח אדם</h1>
-        <button @click="updateData">רענן נתונים</button>
+        <button class="refresh-button" @click="updateData">רענן נתונים</button>
+        <button class="add-button" @click="addSoldier">הוסף חייל</button>
+
+        <dialog id="edit-item-dialog" x-ref="editSoldierDialog">
+            <h2 x-text="selectedSoldier.id === -1 ? 'הוסף חייל' : 'ערך חייל'"></h2>
+            <p x-show="loading">טוען...</p>
+            <form x-show="!loading" @submit.prevent="saveSoldier">
+                <!-- form fields for soldier details -->
+                <label>
+                    מספר אישי:
+                    <input name="id" type="text" x-model="selectedSoldier.id" required>
+                </label>
+                <label>
+                    שם פרטי:
+                    <input name="firstName" type="text" x-model="selectedSoldier.firstName" required>
+                </label>
+                <label>
+                    שם משפחה:
+                    <input name="lastName" type="text" x-model="selectedSoldier.lastName" required>
+                </label>
+                <label>
+                    מספר נייד:
+                    <input name="phone" type="text" x-model="selectedSoldier.phone">
+                </label>
+                <label>
+                    מסגרת:
+                    <alpine-combobox list="frames" selected-item="selectedSoldier.frame" key-prop="id"
+                        display-prop="name" placeholder="בחר מסגרת...">
+                    </alpine-combobox>
+                </label>
+                <label>
+                    תפקיד:
+                    <alpine-combobox list="roles" selected-item="selectedSoldier.role" placeholder="בחר תפקיד..."
+                        allow-custom>
+                    </alpine-combobox>
+                </label>
+                <label>הסמכות:
+                    <div>
+                        <template x-for="qualification in selectedSoldier.qualifications" :key="qualification">
+                            <span>
+                                <span x-text="qualification"></span>
+                                <button type="button"
+                                    @click="selectedSoldier.qualifications = selectedSoldier.qualifications.filter(q => q !== qualification)">x</button>
+                            </span>
+                        </template>
+                    </div>
+                    <alpine-combobox list="qualifications" selected-item="newQualification" placeholder="הוסף הסמכה..."
+                        allow-custom>
+                    </alpine-combobox>
+                    <button type="button" @click="addQualification">הוסף</button>
+                </label>
+                <!-- equipment and zelem fields - for view only -->
+                <label>
+                    ציוד:
+                    <ul>
+                        <template
+                            x-for="item in Object.entries(selectedSoldier.equipment).filter(([key, value]) => value)"
+                            :key="item[0]">
+                            <li>
+                                <strong x-text="item[0]"></strong>: <span x-text="item[1]"></span>
+                            </li>
+                        </template>
+                    </ul>
+                </label>
+                <label>
+                    צל"מים:
+                    <ul>
+                        <template x-for="item in selectedSoldier.zelem" :key="item.id">
+                            <li>
+                                <strong x-text="item.type"></strong>: <span x-text="item.id"></span>
+                            </li>
+                        </template>
+                    </ul>
+                </label>
+
+                <button type="submit" x-text="selectedSoldier.id === -1 ? 'הוסף' : 'שמור'"></button>
+                <button type="button" @click="$refs.editSoldierDialog.close()">בטל</button>
+            </form>
+
+        </dialog>
+
         <div>
             <span>סינון לפי קטגוריות:</span>
             <template x-for="category in Object.values(categories)" :key="category.name">
@@ -60,6 +145,9 @@
                     </th>
                     <th>
                         <div>שם משפחה</div>
+                    </th>
+                    <th>
+                        <div>מס' נייד</div>
                     </th>
                     <th>
                         <div>מסגרת</div>
@@ -108,12 +196,15 @@
                         <td x-text="soldier.id"></td>
                         <td x-text="soldier.firstName"></td>
                         <td x-text="soldier.lastName"></td>
+                        <td x-text="soldier.phone"></td>
                         <td x-text="soldier.frame ? soldier.frame.name : ''"></td>
                         <td x-text="soldier.role"></td>
-                        <td class="qualifications">
-                            <template x-for="qualification in soldier.qualifications" :key="qualification">
-                                <span x-text="qualification"></span>
-                            </template>
+                        <td>
+                            <div class="qualifications-list">
+                                <template x-for="qualification in soldier.qualifications" :key="qualification">
+                                    <span x-text="qualification"></span>
+                                </template>
+                            </div>
                         </td>
                         <td x-text="soldier.status"></td>
                         <template x-for="header in equipmentHeaders.filter(h => categories[h.category]?.view)"
@@ -123,9 +214,12 @@
                         <template x-for="header in zelemHeaders.filter(h => categories[h.category]?.view)"
                             :key="header.name">
                             <td>
-                                <template x-for="z in soldier.zelem.filter(z => z.type === header.name)" :key="z.id">
-                                    <div x-text="z.id"></div>
-                                </template>
+                                <div class="zelem-list">
+                                    <template x-for="z in soldier.zelem.filter(z => z.type === header.name)"
+                                        :key="z.id">
+                                        <span x-text="z.id"></span>
+                                    </template>
+                                </div>
                             </td>
                         </template>
                     </tr>
@@ -184,11 +278,16 @@
                 name: '',
                 rank: '',
                 frame: null,
-                commander: null,
                 qualifications: [],
-                equipment: []
+                equipment: [],
+                zelem: [],
             },
+            newQualification: '',
             categories: {},
+            roles: [],
+            qualifications: [],
+            ststuses: ['לא פעיל', 'פעיל', 'צו בבית', 'צו בבסיס'],
+
             loading: true,
 
             async init() {
@@ -273,6 +372,8 @@
                         map[category.name] = category;
                         return map;
                     }, {});
+                    this.roles = [...new Set(this.soldiers.map(s => s.role))].filter(r => r);
+                    this.qualifications = [...new Set(this.soldiers.flatMap(s => s.qualifications))].filter(q => q);
                 } catch (error) {
                     console.error('Error fetching data:', error);
                 } finally {
@@ -283,6 +384,41 @@
 
             get filteredSoldiers() {
                 return this.soldiers;
+            },
+
+            edit(soldier) {
+                this.selectedSoldier = {
+                    id: soldier.id,
+                    firstName: soldier.firstName,
+                    lastName: soldier.lastName,
+                    phone: soldier.phone,
+                    frame: soldier.frame,
+                    role: soldier.role,
+                    qualifications: [...soldier.qualifications],
+                    status: soldier.status,
+                    equipment: { ...soldier.equipment },
+                    zelem: [...soldier.zelem]
+                };
+                this.$refs.editSoldierDialog.showModal();
+            },
+
+            addSoldier() {
+                this.selectedSoldier = {
+                    id: -1,
+                    name: '',
+                    rank: '',
+                    frame: null,
+                    qualifications: [],
+                    equipment: [],
+                    zelem: []
+                };
+            },
+
+            addQualification() {
+                if (this.newQualification && !this.selectedSoldier.qualifications.includes(this.newQualification)) {
+                    this.selectedSoldier.qualifications.push(this.newQualification);
+                    this.newQualification = '';
+                }
             },
         };
     }
