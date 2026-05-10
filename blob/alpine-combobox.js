@@ -41,12 +41,13 @@ function injectStyles() {
 // ==========================================
 // 2. לוגיקת Alpine.js (מעודכנת לסנכרון דו-כיווני)
 // ==========================================
-function createCombobox(listFn, displayProp) {
+function createCombobox(listFn, displayProp, allowCustom) {
     return {
         searchQuery: '',
         selectedItem: null,
         popoverOpen: false,
         highlightedIndex: -1, // -1 אומר שאף פריט אינו מסומן (פרט לשדה עצמו)
+        allowCustom: !!allowCustom,
 
         init() {
             this.$watch('popoverOpen', value => {
@@ -76,15 +77,15 @@ function createCombobox(listFn, displayProp) {
             const query = String(this.searchQuery).trim().toLowerCase();
             if (query === '') return this.sourceList;
             return this.sourceList.filter(item => {
-                const text = String(displayProp ? item[displayProp] : item).toLowerCase();
+                const text = String(this.getItemLabel(item)).toLowerCase();
                 return text.includes(query);
             });
         },
 
         selectItem(item) {
-            if (item) {
+            if (item !== null && item !== undefined) {
                 this.selectedItem = item;
-                this.searchQuery = displayProp ? item[displayProp] : item;
+                this.searchQuery = this.getItemLabel(item);
             } else {
                 this.selectedItem = null;
                 this.searchQuery = '';
@@ -101,7 +102,7 @@ function createCombobox(listFn, displayProp) {
 
             this.selectedItem = externalItem;
 
-            if (!externalItem) {
+            if (externalItem === null || externalItem === undefined) {
                 this.searchQuery = '';
                 return;
             }
@@ -110,7 +111,9 @@ function createCombobox(listFn, displayProp) {
             // משתמשים ב-String כדי להימנע מבעיות של מספר מול מחרוזת
             const item = this.sourceList.find(i => i === externalItem);
             if (item) {
-                this.searchQuery = String(displayProp ? item[displayProp] : item);
+                this.searchQuery = String(this.getItemLabel(item));
+            } else if (this.canUseCustom) {
+                this.searchQuery = String(externalItem);
             } else {
                 this.searchQuery = '';
             }
@@ -168,9 +171,62 @@ function createCombobox(listFn, displayProp) {
             } else if (this.highlightedIndex > 0 && this.highlightedIndex <= this.filteredItems.length) {
                 const selectedFromList = this.filteredItems[this.highlightedIndex - 1];
                 this.selectItem(selectedFromList);
+            } else if (this.canUseCustom) {
+                const customValue = this.coerceCustomValue(this.searchQuery);
+                if (customValue === null) {
+                    this.selectItem(null);
+                } else {
+                    this.selectItem(customValue);
+                }
             } else {
                 this.popoverOpen = false;
             }
+        },
+
+        get listValueType() {
+            const list = this.sourceList;
+            for (let i = 0; i < list.length; i++) {
+                const item = list[i];
+                if (item === null || item === undefined) continue;
+                const type = typeof item;
+                if (type === 'string' || type === 'number') return type;
+                return 'other';
+            }
+            return 'string';
+        },
+
+        get canUseCustom() {
+            return this.allowCustom && !displayProp && (this.listValueType === 'string' || this.listValueType === 'number');
+        },
+
+        getItemLabel(item) {
+            return displayProp ? item[displayProp] : item;
+        },
+
+        coerceCustomValue(rawValue) {
+            const trimmed = String(rawValue ?? '').trim();
+            if (trimmed === '') return null;
+
+            if (this.listValueType === 'number') {
+                const num = Number(trimmed);
+                return Number.isNaN(num) ? trimmed : num;
+            }
+
+            return trimmed;
+        },
+
+        handleOutsideClick() {
+            if (this.canUseCustom) {
+                const customValue = this.coerceCustomValue(this.searchQuery);
+                if (customValue === null) {
+                    this.selectItem(null);
+                } else {
+                    this.selectItem(customValue);
+                }
+                return;
+            }
+
+            this.popoverOpen = false;
         },
 
         // מבטיח שהפריט המואר יהיה גלוי לעין בתוך גלילת ה-Popover
@@ -205,6 +261,7 @@ class AlpineCombobox extends HTMLElement {
         const keyProp = this.getAttribute('key-prop');
         const displayProp = this.getAttribute('display-prop');
         const placeholder = this.getAttribute('placeholder') || 'חיפוש...';
+        const allowCustom = this.hasAttribute('allow-custom') || this.hasAttribute('suggestion-box');
 
         const templateEl = this.querySelector('template');
         const itemTemplate = templateEl ? templateEl.innerHTML : `<span x-text="item${displayProp ? `.${displayProp}` : ''}"></span>`;
@@ -227,10 +284,10 @@ class AlpineCombobox extends HTMLElement {
         // בניית ה-DOM (ללא ה-hidden input!)
         this.innerHTML = `
                 <div 
-                    x-data="createCombobox(() => (${listName}), ${displayProp ? `'${displayProp}'` : 'null'})" 
+                    x-data="createCombobox(() => (${listName}), ${displayProp ? `'${displayProp}'` : 'null'}, ${allowCustom ? 'true' : 'false'})" 
                     ${initDirective}
                     class="ac-wrapper"
-                    @click.outside="popoverOpen = false"
+                    @click.outside="handleOutsideClick()"
                     @keydown.escape.prevent="popoverOpen = false"
                     x-ref="wrapper"
                 >
