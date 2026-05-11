@@ -9,7 +9,7 @@ function injectStyles() {
     style.textContent = `
             .ac-wrapper { position: relative; width: 100%; font-family: inherit; box-sizing: border-box; }
             .ac-wrapper * { box-sizing: border-box; }
-            .ac-input { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 16px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; background-color: #fff; color: #111827; }
+            .ac-input { width: 100%; padding: 0.5em 1em; border: 1px solid #d1d5db; border-radius: 1em; font-size: 16px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; background-color: #fff; color: #111827; }
             .ac-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
             .ac-popover { top: anchor(bottom); justify-self: anchor-center; width: anchor-size(width); position-try-fallbacks: flip-block; margin: 6px 0; padding: 6px; border: 1px solid #e5e7eb; border-radius: 8px; background: white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
             .ac-list { list-style: none; margin: 0; padding: 0; }
@@ -21,7 +21,7 @@ function injectStyles() {
 
             .ac-wrapper { position: relative; width: 100%; font-family: inherit; box-sizing: border-box; }
             .ac-wrapper * { box-sizing: border-box; }
-            .ac-input { width: 100%; padding: 10px 14px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 16px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; background-color: #fff; color: #111827; }
+            .ac-input { width: 100%; padding: 0.5em 1em; border: 1px solid #d1d5db; border-radius: 1em; font-size: 16px; outline: none; transition: border-color 0.2s, box-shadow 0.2s; background-color: #fff; color: #111827; }
             .ac-input:focus { border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
             .ac-popover { top: anchor(bottom); justify-self: anchor-center; width: anchor-size(width); position-try-fallbacks: flip-block; margin: 6px 0; padding: 6px; border: 1px solid #e5e7eb; border-radius: 8px; background: white; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); max-height: 40dvh; overflow-y: auto; overscroll-behavior: contain; }
             .ac-list { list-style: none; margin: 0; padding: 0; }
@@ -262,6 +262,7 @@ class AlpineCombobox extends HTMLElement {
         const displayProp = this.getAttribute('display-prop');
         const placeholder = this.getAttribute('placeholder') || 'חיפוש...';
         const allowCustom = this.hasAttribute('allow-custom') || this.hasAttribute('suggestion-box');
+        const required = this.hasAttribute('required');
 
         const templateEl = this.querySelector('template');
         const itemTemplate = templateEl ? templateEl.innerHTML : `<span x-text="item${displayProp ? `.${displayProp}` : ''}"></span>`;
@@ -307,6 +308,7 @@ class AlpineCombobox extends HTMLElement {
                         style="anchor-name: ${anchorName};"
                         class="ac-input"
                         placeholder="${placeholder}"
+                        ${required ? 'required' : ''}
                     >
                     
                     <div 
