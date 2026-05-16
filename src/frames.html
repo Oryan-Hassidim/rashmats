@@ -14,8 +14,8 @@
     <?!= navbar('frames'); ?>
     <main x-data="vm()">
         <h1>מסגרות</h1>
-        <button class="refresh-button" @click="updateData">רענן</button>
-        <button class="add-button" @click="addFrame">מסגרת חדשה</button>
+        <button class="refresh-button" @click="updateData" title="רענן"></button>
+        <button class="add-button" @click="addFrame" title="הוסף מסגרת"></button>
 
         <dialog id="edit-item-dialog" x-ref="editFrameDialog">
             <h2 x-text="selectedFrame.id === -1 ? 'מסגרת חדשה' : 'ערוך מסגרת'"></h2>
@@ -33,49 +33,53 @@
                 </label>
                 <button type="submit" x-text="selectedFrame.id === -1 ? 'הוסף' : 'שמור'"></button>
             </form>
-            <button commandfor="edit-frame-dialog" command="close">Close</button>
+            <button commandfor="edit-frame-dialog" command="close" title="סגור">Close</button>
         </dialog>
-        <table>
-            <thead>
-                <tr>
-                    <th>
-                        <div>מזהה</div>
-                    </th>
-                    <th>
-                        <div>שם</div>
-                    </th>
-                    <th>
-                        <div>מפקד</div>
-                    </th>
-                    <th>
-                        <div>חיילים</div>
-                    </th>
-                    <th>
-                        <div>פעולות</div>
-                    </th>
-                </tr>
-            </thead>
-            <tbody x-show="!loading">
-                <template x-for="frame in frames" :key="frame.id">
+        <div class="table-container">
+
+            <table>
+                <thead>
                     <tr>
-                        <td x-text="frame.id"></td>
-                        <td x-text="frame.name"></td>
-                        <td x-text="frame.commander?.name"></td>
-                        <td x-text="soldiers?.filter(s => s.frameId === frame.id).length || 0"></td>
-                        <td>
-                            <button @click="editFrame(frame)">ערוך</button>
-                            <button @click="deleteFrame(frame)"
-                                :disabled="frame.soldiers?.filter(s => s.frameId === frame.id).length > 0">מחק</button>
-                        </td>
+                        <th>
+                            <div>מזהה</div>
+                        </th>
+                        <th>
+                            <div>שם</div>
+                        </th>
+                        <th>
+                            <div>מפקד</div>
+                        </th>
+                        <th>
+                            <div>חיילים</div>
+                        </th>
+                        <th>
+                            <div>פעולות</div>
+                        </th>
                     </tr>
-                </template>
-            </tbody>
-            <tbody x-show="loading">
-                <tr>
-                    <td colspan="5" class="loading">טוען...</td>
-                </tr>
-            </tbody>
-        </table>
+                </thead>
+                <tbody x-show="!loading">
+                    <template x-for="frame in frames" :key="frame.id">
+                        <tr>
+                            <td x-text="frame.id"></td>
+                            <td x-text="frame.name"></td>
+                            <td x-text="frame.commander?.name"></td>
+                            <td x-text="soldiers?.filter(s => s.frameId === frame.id).length || 0"></td>
+                            <td>
+                                <button class="edit-button" @click="editFrame(frame)" title="ערוך"></button>
+                                <button class="delete-button" @click="deleteFrame(frame)"
+                                    :disabled="frame.soldiers?.filter(s => s.frameId === frame.id).length > 0"
+                                    title="מחק"></button>
+                            </td>
+                        </tr>
+                    </template>
+                </tbody>
+                <tbody x-show="loading">
+                    <tr>
+                        <td colspan="5" class="loading">טוען...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
     </main>
 </body>
 
@@ -167,11 +171,11 @@
                     }
                 } else {
                     try {
-                        const update = {
+                        const update = [[this.selectedFrame.id, {
                             [ID_STRING]: this.selectedFrame.id,
                             [NAME_STRING]: this.selectedFrame.name,
                             [COMMANDER_ID_STRING]: this.selectedFrame.commander?.id || null
-                        };
+                        }]];
                         console.log('Updating frame with data:', update);
                         await server.editRows(FRAMES_STRING, [update]);
                     } catch (error) {

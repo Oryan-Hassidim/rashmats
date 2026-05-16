@@ -4,7 +4,7 @@
 
 
 function test() {
-    Logger.log(Users());
+    editRows('כוח אדם', [["5", { "מזהה": "'5555555", "שם פרטי": "טל", "שם משפחה": "אלזמי", "מספר נייד": "'0542301338", "מזהה מסגרת": 3, "תפקיד": "רס\"פ", "הסמכות": "", "סטטוס": "" }]]);
 }
 
 const ID_STRING = 'מזהה';
@@ -93,7 +93,7 @@ function getData(tableName) {
 
 function getDataById(tableName, id) {
     const data = getData(tableName);
-    return data.find(row => row[0] === id);
+    return data.find(row => String(row[0]) === String(id));
 }
 
 function appendRow(tableName, row) {
@@ -113,7 +113,8 @@ function appendRow(tableName, row) {
 }
 
 function editRows(tableName, updates) {
-    // updates = [{מזהה: 1, שם: 'new name', מזהה מפקד: 2}, ...]
+    // updates = [[3, {מזהה: 1, שם: 'new name', מזהה מפקד: 2}], ...]
+    Logger.log(`Editing rows in table ${tableName} with updates: ${JSON.stringify(updates)}`);
     const lock = LockService.getDocumentLock();
     try {
         lock.waitLock(30000);
@@ -121,17 +122,22 @@ function editRows(tableName, updates) {
         const data = sheet.getDataRange().getValues();
         const headers = data[0];
         updates.forEach(update => {
-            const rowIndex = data.findIndex(row => row[0] === update[ID_STRING]);
+            // remove "'" from id starting if exists
+            var updateId = update[0];
+            if (typeof updateId === 'string' && updateId.startsWith("'")) {
+                updateId = updateId.substring(1);
+            }
+            const rowIndex = data.findIndex(row => String(row[0]) === String(updateId));
             if (rowIndex === -1) {
-                throw new Error(`Row with id ${update[ID_STRING]} not found in table ${tableName}`);
+                throw new Error(`Row with id ${updateId} not found in table ${tableName}`);
             }
             const row = data[rowIndex];
-            for (const key in update) {
+            for (const key in update[1]) {
                 const colIndex = headers.indexOf(key);
                 if (colIndex === -1) {
                     throw new Error(`Column ${key} not found in table ${tableName}`);
                 }
-                row[colIndex] = update[key];
+                row[colIndex] = update[1][key];
             }
             sheet.getRange(rowIndex + 1, 1, 1, row.length).setValues([row]);
         });
@@ -151,7 +157,7 @@ function deleteRow(tableName, id) {
         lock.waitLock(30000);
         const sheet = SpreadsheetApp.getActive().getSheetByName(tableName);
         const data = sheet.getDataRange().getValues();
-        const rowIndex = data.findIndex(row => row[0] === id);
+        const rowIndex = data.findIndex(row => String(row[0]) === String(id));
         if (rowIndex === -1) {
             throw new Error(`Row with id ${id} not found in table ${tableName}`);
         }
