@@ -247,6 +247,7 @@ function createCombobox(listFn, displayProp, allowCustom) {
 // ==========================================
 class AlpineCombobox extends HTMLElement {
     connectedCallback() {
+        super.connectedCallback();
         injectStyles();
 
         const listName = this.getAttribute('list');

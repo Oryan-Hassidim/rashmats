@@ -7,40 +7,55 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="alpine-combobox.js"></script>
     <title>Document</title>
+
+    <style>
+        table {
+            border-collapse: collapse;
+        }
+
+        .id-col {
+            visibility: collapse;
+        }
+
+        .name-col {
+            width: 200px;
+        }
+    </style>
 </head>
 
 <body>
 
     <div x-data="{ 
             people: [
-                1,2,3
+                { id: 1, name: 'Alice' },
+                { id: 2, name: 'Bob' },
+                { id: 3, name: 'Charlie' }
             ],
             form: { manager: null },
             init() {
                 this.form.manager = this.people[0]; // בחר את אליס כברירת מחדל
-
-                // after 3 seconds, change people list to simulate dynamic updates
-                setTimeout(() => {
-                    this.people = [
-                        1,
-                        2,
-                        3,400,500,8807
-                    ];
-                }, 5000);
             }
         }">
 
-        <!-- האלמנט נקשר ישירות ל-form.manager -->
-        <alpine-combobox list="people" selected-item="form.manager" placeholder="בחר מנהל..." allow-custom>
-        </alpine-combobox>
-
-        <p x-text="`${people.length}${form.manager ? ` - ${form.manager}`: ''}`"></p>
-
-        <!-- תוכל לראות שזה מתעדכן בזמן אמת! -->
-        <p>מזהה המנהל הנבחר הוא: <strong x-text="form.manager"></strong></p>
-
-        <!-- ואם תשנה את הערך פה, ה-Combobox יתעדכן ויציג 'אליס' אוטומטית! -->
-        <button @click="form.manager = people[0]">בחר באליס מבחוץ</button>
+        <table>
+            <template x-for="i in [1,2]" :key="i">
+                <style x-text="`.col-${i} { display: ${i === 2 ? none : 'none'}; }`"></style>
+            </template>
+            <thead>
+                <tr>
+                    <th class="col-1">מזהה</th>
+                    <th class="col-2">שם</th>
+                </tr>
+            </thead>
+            <tbody>
+                <template x-for="person in people" :key="person">
+                    <tr>
+                        <td class="col-1" x-text="person.id"></td>
+                        <td class="col-2" x-text="person.name"></td>
+                    </tr>
+                </template>
+            </tbody>
+        </table>
     </div>
 
 </body>

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Alpine + Web Component DataTable</title>
+    <!-- טעינת Alpine.js -->
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+
+    <style>
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            padding: 20px;
+            background: #f9f9f9;
+        }
+
+        /* עיצוב בסיסי לטבלה שלנו */
+        alpine-datatable {
+            display: block;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .controls {
+            display: flex;
+            justify-content: space-between;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .controls input,
+        .controls select {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            border-bottom: 1px solid #ddd;
+            padding: 12px;
+            text-align: right;
+        }
+
+        th {
+            cursor: pointer;
+            background: #f1f5f9;
+            user-select: none;
+            transition: background 0.2s;
+        }
+
+        th:hover {
+            background: #e2e8f0;
+        }
+
+        .group-header {
+            background: #dbeafe;
+            font-weight: bold;
+        }
+
+        .pagination {
+            margin-top: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .pagination-btns button {
+            padding: 8px 16px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+
+        .pagination-btns button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h2>טבלת הנתונים שלנו 📊</h2>
+
+    <!-- כאן אנחנו משתמשים בקומפוננטה שבנינו! -->
+    <alpine-datatable
+        columns='[{"key": "id", "label": "מזהה"}, {"key": "name", "label": "שם"}, {"key": "department", "label": "מחלקה"}, {"key": "role", "label": "תפקיד"}]'
+        data='[
+            {"id": 1, "name": "יוסי", "department": "פיתוח", "role": "Backend"}, 
+            {"id": 2, "name": "רונית", "department": "שיווק", "role": "מנהלת קמפיינים"}, 
+            {"id": 3, "name": "דני", "department": "פיתוח", "role": "Frontend"}, 
+            {"id": 4, "name": "מיכל", "department": "משאבי אנוש", "role": "מגייסת"}, 
+            {"id": 5, "name": "אלעד", "department": "שיווק", "role": "SEO"}, 
+            {"id": 6, "name": "שירה", "department": "פיתוח", "role": "DevOps"},
+            {"id": 7, "name": "אבי", "department": "כספים", "role": "רואה חשבון"}
+        ]'>
+    </alpine-datatable>
+
+    <script>
+        // 1. הגדרת הלוגיקה של Alpine.js
+        document.addEventListener('alpine:init', () => {
+            Alpine.data('dataTableLogic', (initialData, columns) => ({
+                data: initialData,
+                columns: columns,
+                search: '',
+                sortCol: null,
+                sortAsc: true,
+                page: 1,
+                pageSize: 4,
+                groupBy: '',
+
+                // שלב א': סינון ומיון הנתונים
+                get processedData() {
+                    let result = this.data;
+
+                    // סינון (חיפוש חופשי)
+                    if (this.search) {
+                        const s = this.search.toLowerCase();
+                        result = result.filter(row =>
+                            Object.values(row).some(val => String(val).toLowerCase().includes(s))
+                        );
+                    }
+
+                    // מיון
+                    if (this.sortCol) {
+                        result = result.slice().sort((a, b) => {
+                            let valA = a[this.sortCol];
+                            let valB = b[this.sortCol];
+                            if (valA < valB) return this.sortAsc ? -1 : 1;
+                            if (valA > valB) return this.sortAsc ? 1 : -1;
+                            return 0;
+                        });
+                    }
+
+                    return result;
+                },
+
+                // שלב ב': חיתוך לעימוד (Pagination)
+                get pagedData() {
+                    const start = (this.page - 1) * this.pageSize;
+                    return this.processedData.slice(start, start + this.pageSize);
+                },
+
+                get totalPages() {
+                    return Math.ceil(this.processedData.length / this.pageSize) || 1;
+                },
+
+                // שלב ג': קיבוץ הנתונים (אם נבחר) מתוך הנתונים המוצגים בעמוד
+                get groupedData() {
+                    if (!this.groupBy) return null;
+                    const groups = {};
+                    this.pagedData.forEach(row => {
+                        const val = row[this.groupBy] || 'אחר';
+                        if (!groups[val]) groups[val] = [];
+                        groups[val].push(row);
+                    });
+                    return groups;
+                },
+
+                // פעולות (Actions)
+                sortBy(col) {
+                    if (this.sortCol === col) {
+                        this.sortAsc = !this.sortAsc;
+                    } else {
+                        this.sortCol = col;
+                        this.sortAsc = true;
+                    }
+                },
+                nextPage() { if (this.page < this.totalPages) this.page++; },
+                prevPage() { if (this.page > 1) this.page--; }
+            }));
+        });
+
+        // 2. יצירת ה-Web Component
+        class AlpineDataTable extends HTMLElement {
+            connectedCallback() {
+                // משיכת הנתונים מהתכונות של האלמנט
+                const rawData = this.getAttribute('data') || '[]';
+                const rawCols = this.getAttribute('columns') || '[]';
+
+                // הזרקת ה-HTML עם ההוראות של Alpine.js
+                this.innerHTML = `
+                    <div x-data="dataTableLogic(${rawData}, ${rawCols})">
+                        
+                        <!-- אזור שליטה: חיפוש וקיבוץ -->
+                        <div class="controls">
+                            <input type="text" x-model="search" placeholder="חיפוש חופשי..." @input="page = 1">
+                            <select x-model="groupBy" @change="page = 1">
+                                <option value="">ללא קיבוץ</option>
+                                <template x-for="col in columns" :key="col.key">
+                                    <option :value="col.key" x-text="'קבץ לפי ' + col.label"></option>
+                                </template>
+                            </select>
+                        </div>
+
+                        <!-- הטבלה עצמה -->
+                        <table>
+                            <thead>
+                                <tr>
+                                    <template x-for="col in columns" :key="col.key">
+                                        <th @click="sortBy(col.key)">
+                                            <span x-text="col.label"></span>
+                                            <span x-show="sortCol === col.key" x-text="sortAsc ? ' 🔼' : ' 🔽'"></span>
+                                        </th>
+                                    </template>
+                                </tr>
+                            </thead>
+                            
+                            <!-- רינדור במצב קיבוץ (Grouping) -->
+                            <template x-if="groupBy">
+                                <template x-for="(groupRows, groupName) in groupedData" :key="groupName">
+                                    <tbody>
+                                        <tr class="group-header">
+                                            <td :colspan="columns.length" x-text="groupName + ' (' + groupRows.length + ')'"></td>
+                                        </tr>
+                                        <template x-for="row in groupRows" :key="row.id">
+                                            <tr>
+                                                <template x-for="col in columns" :key="col.key">
+                                                    <td x-text="row[col.key]"></td>
+                                                </template>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </template>
+                            </template>
+
+                            <!-- רינדור רגיל (ללא קיבוץ) -->
+                            <template x-if="!groupBy">
+                                <tbody>
+                                    <template x-for="row in pagedData" :key="row.id">
+                                        <tr>
+                                            <template x-for="col in columns" :key="col.key">
+                                                <td x-text="row[col.key]"></td>
+                                            </template>
+                                        </tr>
+                                    </template>
+                                    <tr x-show="pagedData.length === 0">
+                                        <td :colspan="columns.length" style="text-align: center;">לא נמצאו נתונים התואמים לחיפוש</td>
+                                    </tr>
+                                </tbody>
+                            </template>
+                        </table>
+
+                        <!-- אזור עימוד (Pagination) -->
+                        <div class="pagination">
+                            <div class="pagination-btns">
+                                <button @click="nextPage()" :disabled="page === totalPages">הבא</button>
+                                <button @click="prevPage()" :disabled="page === 1">הקודם</button>
+                            </div>
+                            <span x-text="'עמוד ' + page + ' מתוך ' + totalPages"></span>
+                            <select x-model.number="pageSize" @change="page = 1">
+                                <option value="2">2 שורות</option>
+                                <option value="4">4 שורות</option>
+                                <option value="10">10 שורות</option>
+                            </select>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // רישום האלמנט החדש בדפדפן
+        customElements.define('alpine-datatable', AlpineDataTable);
+    </script>
+</body>
+
+</html>
