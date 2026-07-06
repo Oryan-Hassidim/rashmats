@@ -1,0 +1,9 @@
+{
+  "profiles": {
+    "ServerCSharp": {
+      "commandName": "Project",
+      "commandLineArgs": "--port 7025",
+      "launchBrowser": false
+    }
+  }
+}
