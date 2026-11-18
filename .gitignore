@@ -1,6 +1,0 @@
-# Azurite local emulator artifacts
-__azurite_db_*__.json
-__blobstorage__*
-__queuestorage__*
-__tablestorage__*
-azurite_db_*.json
