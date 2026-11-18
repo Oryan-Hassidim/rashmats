@@ -1,24 +1,24 @@
-# מודל נתונים (Data Model & Schema) - Rashmatz
+# Data Model & Schema - Rashmatz
 
-ארכיטקטורת נתונים רלציונית אחודה, יעילה ומודרנית. מותאמת ב-100% להרצה הן על **PostgreSQL** והן על **SQLite** ללא צורך בשינויים מהותיים בסכמה.
+A unified, efficient, and modern relational data architecture. 100% compatible with both **PostgreSQL** and **SQLite** without requiring substantial schema changes.
 
-## 1. עקרונות תאימות וייעול (Cross-DB Standards)
+## 1. Cross-DB Compatibility & Optimization Principles
 
-1. **מזהים (Primary Keys):** שימוש ב-UUID (או UUIDv7 ממוין זמן). ב-PostgreSQL הטיפוס הוא `UUID`, וב-SQLite הטיפוס הוא `TEXT`. מזהים אלו מונעים חשיפת נתונים ומאפשרים יצירת מזהה אופליין בצד הלקוח.
-2. **מחרוזות:** שימוש בטיפוס `TEXT` סטנדרטי (ב-PostgreSQL וב-SQLite אין יתרון ל-`VARCHAR(n)`).
-3. **סטטוסים ו-Enums קומפקטיים:** מנוהלים כמספרים שלמים קטנים (`SMALLINT` ב-Postgres / `INTEGER` ב-SQLite) התופסים 1–2 בתים בלבד.
-4. **ישות מחזיק אחודה (`custody_holders`):** ביטול ההפרדה בין אדם למיקום. כל גורם שיכול להחזיק ציוד (עובד, קבלן, מחסן, רכב, מדף) מיוצג בישות אחת.
-5. **הבחנה בין משמורת (Custody) למיקום פיזי (Location - עקרון OR גמיש):**
-   * **משמורת:** מגדירה את האחריות החוקית/ניהולית על הפריט (`current_holder_id`).
-   * **מיקום פיזי:** ניתן להגדרה כישות רשומה במערכת (`location_holder_id`), כטקסט חופשי (`location_custom_text`), או **כשניהם יחד** (למשל: ישות "מחסן ראשי" + פירוט טקסטואלי "ארונית 3, מגירה ב'").
-   * כל עדכון מיקום ללא העברת בעלות מתועד ביומן ייעודי בלתי-מחיק.
-6. **תבניות העברה מוכנות (Transfer Templates / Kits):** מאפשרות הגדרת "ערכות ציוד" או העברות קבועות מראש (למשל: ערכת קליטת עובד, ערכת יציאה לשטח), עם מקור/יעד אופציונליים ורשימת מוצרים וכמויות. בעת ביצוע העברה בפועל מתוך תבנית, עבור פריטים סריאליים נבחרים או נסרקים הפריטים הספציפיים.
-7. **מעקב שינויים (`updated_at` מול Append-only):** מנועי SQL אינם מנהלים היסטוריית שורה אוטומטית. לכן, טבלאות מצב מתעדכנות (Mutable Entities) מכילות עמודת `updated_at`. טבלאות יומן בלתי-מחיקות (Append-only / Immutable logs, כגון העברות בעלות ותנועות מיקום) אינן כוללות שדה זה, אלא רק חותמת מועד יצירה.
-8. **אינדוקס ממוקד (Lean Indexing):** הסרת אינדקסים מיותרים על עמודות בעלות שונות נמוכה (Low Cardinality כגון סטטוסים בודדים). השארת אינדקסים רק עבור FK פעילים ב-JOINs ואינדקסי `UNIQUE` עסקיים.
+1. **Identifiers (Primary Keys):** Use of UUIDs (or time-sorted UUIDv7). In PostgreSQL the type is `UUID`, and in SQLite the type is `TEXT`. These identifiers prevent data exposure and allow offline ID generation on the client side.
+2. **Strings:** Use of standard `TEXT` type (in PostgreSQL and SQLite there is no advantage to `VARCHAR(n)`).
+3. **Compact Statuses & Enums:** Managed as small integers (`SMALLINT` in Postgres / `INTEGER` in SQLite) occupying only 1–2 bytes.
+4. **Unified Custody Holder Entity (`custody_holders`):** Eliminating the separation between a person and a location. Every actor that can hold equipment (employee, contractor, warehouse, vehicle, shelf) is represented in a single entity.
+5. **Distinction Between Custody and Physical Location (Flexible OR Principle):**
+   * **Custody:** Defines legal/managerial accountability for the item (`current_holder_id`).
+   * **Physical Location:** Can be defined as a registered entity in the system (`location_holder_id`), as free text (`location_custom_text`), or **as both together** (e.g., entity "Main Warehouse" + text detail "Cabinet 3, Drawer B").
+   * Every location update without a transfer of ownership is recorded in a dedicated immutable log.
+6. **Predefined Transfer Templates (Transfer Templates / Kits):** Allow defining "equipment kits" or preset recurring transfers (e.g., employee onboarding kit, field deployment kit), with optional source/destination and a list of products and quantities. When executing an actual transfer from a template, the specific serialized items are selected or scanned.
+7. **Change Tracking (`updated_at` vs. Append-Only):** SQL engines do not maintain automatic row history. Therefore, mutable state tables (Mutable Entities) include an `updated_at` column. Immutable log tables (Append-only / Immutable logs, such as ownership transfers and location movements) do not include this field, only a creation timestamp.
+8. **Lean Indexing:** Removal of redundant indexes on low-cardinality columns (such as single status columns). Retaining indexes only for active FKs in JOINs and business `UNIQUE` indexes.
 
 ---
 
-## 2. דיאגרמת קשרים כללית (Unified High-Level ERD)
+## 2. Unified High-Level ERD
 
 ```
 User (Global Google Auth)
@@ -42,385 +42,385 @@ User (Global Google Auth)
 
 ---
 
-## 3. ניהול משתמשים וארגונים (Identity & Tenancy)
+## 3. Identity & Tenancy Management
 
-### `users` (חשבונות משתמש גלובליים מגוגל)
-משתמשים מאומתים דרך Google OAuth. אינם שייכים ישירות לארגון בודד.
+### `users` (Global Google User Accounts)
+Users authenticated via Google OAuth. They do not belong directly to a single organization.
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה ייחודי גלובלי |
-| `google_id` | `TEXT` | `UNIQUE, NOT NULL` | מזהה משתמש קבוע מגוגל (`sub`) |
-| `email` | `TEXT` | `UNIQUE, NOT NULL` | כתובת דוא"ל (Lowercased) |
-| `full_name` | `TEXT` | `NOT NULL` | שם מלא כפי שמוגדר בחשבון גוגל |
-| `avatar_url` | `TEXT` | `NULLABLE` | תמונת פרופיל מגוגל |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד יצירה ראשוני |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון אחרון |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Global unique identifier |
+| `google_id` | `TEXT` | `UNIQUE, NOT NULL` | Permanent Google user ID (`sub`) |
+| `email` | `TEXT` | `UNIQUE, NOT NULL` | Email address (Lowercased) |
+| `full_name` | `TEXT` | `NOT NULL` | Full name as configured in Google account |
+| `avatar_url` | `TEXT` | `NULLABLE` | Google profile picture |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Initial creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Last update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_users_google_id ON users(google_id);`
 * `CREATE UNIQUE INDEX idx_users_email ON users(email);`
 
-### `organizations` (שוכרים / ארגונים - Tenants)
+### `organizations` (Tenants)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה ארגון |
-| `name` | `TEXT` | `NOT NULL` | שם הארגון |
-| `slug` | `TEXT` | `UNIQUE, NOT NULL` | מזהה טקסטואלי עבור נתיבים וגישה |
-| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = פעיל, `0` = מושבת |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד הקמת הארגון |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון הגדרות הארגון |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Organization identifier |
+| `name` | `TEXT` | `NOT NULL` | Organization name |
+| `slug` | `TEXT` | `UNIQUE, NOT NULL` | Textual identifier for routes and access |
+| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = Active, `0` = Disabled |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Organization creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Organization settings update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_organizations_slug ON organizations(slug);`
 
-### `departments` (מחלקות / אגפים / יחידות בארגון)
-מבנה ארגוני פנימי עבור שיוך עובדים, צוותים ומחסנים ייעודיים.
+### `departments` (Organization Departments / Divisions / Units)
+Internal organizational structure for assigning employees, teams, and dedicated warehouses.
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה מחלקה ייחודי |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `name` | `TEXT` | `NOT NULL` | שם המחלקה / צוות |
-| `code` | `TEXT` | `NULLABLE` | קוד זיהוי קצר (למשל: "OPS", "LOG") |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד הקמה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון פרטים |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Unique department identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `name` | `TEXT` | `NOT NULL` | Department / team name |
+| `code` | `TEXT` | `NULLABLE` | Short identifier code (e.g., "OPS", "LOG") |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Details update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_departments_org_name ON departments(organization_id, name);`
 
 ---
 
-## 4. ישות מחזיק אחודה, נוכחות והכשרות (Custodians, Attendance & Certifications)
+## 4. Unified Custody Holder, Attendance & Certifications (Custodians, Attendance & Certifications)
 
-### `custody_holders` (מחזיק ציוד - אדם או מיקום)
-טבלה מאוחדת המרכזת אנשים ומקומות. משמשת גם כ-Whitelist המורשים לארגון וכמעקב נוכחות לאנשי הארגון.
+### `custody_holders` (Equipment Holder – Person or Location)
+A unified table consolidating people and locations. Also serves as the authorized Whitelist for the organization and for tracking attendance of organization personnel.
 
-*מיפוי סוג מחזיק (`holder_type`):*
-* `0` = מיקום (מחסן, מכולה, רכב, מדף)
-* `1` = אדם / עובד / חבר ארגון
+*Holder Type Mapping (`holder_type`):*
+* `0` = Location (warehouse, container, vehicle, shelf)
+* `1` = Person / employee / organization member
 
-*מיפוי תפקיד הרשאה (`role`):*
-* `0` = ללא גישה למערכת (רלוונטי למיקומים או לעובדים ללא ממשק)
-* `1` = MEMBER (משתמש קצה: צפייה בציוד שלו, ביצוע סריקות בביקורת)
-* `2` = ADMIN (מנהל מערכת: העברות, ביקורות, ניהול פריטים והרשאות)
+*Permission Role Mapping (`role`):*
+* `0` = No system access (relevant for locations or employees without UI access)
+* `1` = MEMBER (End user: view their own equipment, perform audit scans)
+* `2` = ADMIN (System administrator: transfers, audits, item and permissions management)
 
-*מיפוי סטטוס נוכחות (`attendance_status` - רלוונטי לאנשים):*
-* `0` = לא פעיל / לא זמין (`INACTIVE`)
-* `1` = נוכח פיזית בארגון (`PRESENT`)
-* `2` = בבית / מרחוק (`HOME / REMOTE`)
+*Attendance Status Mapping (`attendance_status` – relevant for people):*
+* `0` = Inactive / Unavailable (`INACTIVE`)
+* `1` = Physically present at organization (`PRESENT`)
+* `2` = At home / Remote (`HOME / REMOTE`)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה מחזיק ייחודי |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך ארגוני |
-| `department_id` | `UUID / TEXT` | `NULLABLE, REFERENCES departments(id)` | שיוך למחלקה / צוות בארגון |
-| `user_id` | `UUID / TEXT` | `NULLABLE, REFERENCES users(id)` | קישור לחשבון גוגל מאומת (אם מדובר באדם) |
-| `holder_type` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 1` | `0` = מיקום, `1` = אדם |
-| `name` | `TEXT` | `NOT NULL` | שם האדם או המיקום |
-| `internal_identifier` | `TEXT` | `NULLABLE` | מזהה פנימי (מספר עובד, קוד מחסן) |
-| `invited_email` | `TEXT` | `NULLABLE` | מייל ל-Whitelist (עבור אנשים) |
-| `role` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | רמת הרשאה בארגון (`0` = ללא, `1` = חבר, `2` = מנהל) |
-| `attendance_status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | סטטוס נוכחות (`0`=לא פעיל, `1`=נוכח, `2`=בבית) |
-| `phone_number` | `TEXT` | `NULLABLE` | טלפון ליצירת קשר |
-| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = פעיל, `0` = מושבת |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד הוספה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון אחרון |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Unique holder identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `department_id` | `UUID / TEXT` | `NULLABLE, REFERENCES departments(id)` | Department / team association in organization |
+| `user_id` | `UUID / TEXT` | `NULLABLE, REFERENCES users(id)` | Link to authenticated Google account (if a person) |
+| `holder_type` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 1` | `0` = Location, `1` = Person |
+| `name` | `TEXT` | `NOT NULL` | Name of the person or location |
+| `internal_identifier` | `TEXT` | `NULLABLE` | Internal identifier (employee number, warehouse code) |
+| `invited_email` | `TEXT` | `NULLABLE` | Whitelist email (for people) |
+| `role` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | Permission level in organization (`0` = None, `1` = Member, `2` = Admin) |
+| `attendance_status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | Attendance status (`0` = Inactive, `1` = Present, `2` = Home) |
+| `phone_number` | `TEXT` | `NULLABLE` | Contact phone number |
+| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = Active, `0` = Disabled |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Addition timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Last update timestamp |
 
-*אינדקסים ואילוצים:*
+*Indexes & Constraints:*
 * `CREATE UNIQUE INDEX idx_custody_holders_org_internal ON custody_holders(organization_id, internal_identifier) WHERE internal_identifier IS NOT NULL;`
 * `CREATE UNIQUE INDEX idx_custody_holders_org_user ON custody_holders(organization_id, user_id) WHERE user_id IS NOT NULL;`
 * `CREATE INDEX idx_custody_holders_org_email ON custody_holders(organization_id, invited_email);`
 * `CREATE INDEX idx_custody_holders_department ON custody_holders(department_id);`
 
-### `certifications` (קטלוג הכשרות והרשאות)
-סוגי הכשרות שהארגון מגדיר (למשל: "נהיגה במלגזה", "מפעיל קשר", "עבודה בגובה").
+### `certifications` (Certifications & Permits Catalog)
+Types of certifications defined by the organization (e.g., "Forklift Driving", "Radio Operator", "Working at Heights").
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה הכשרה |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך ארגוני |
-| `name` | `TEXT` | `NOT NULL` | שם ההכשרה |
-| `description` | `TEXT` | `NULLABLE` | תיאור / דרישות קדם |
-| `validity_months` | `INTEGER` | `NULLABLE` | תוקף בחודשים (אם נדרש חידוש תקופתי) |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד הוספה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון הגדרת הכשרה |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Certification identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `name` | `TEXT` | `NOT NULL` | Certification name |
+| `description` | `TEXT` | `NULLABLE` | Description / prerequisites |
+| `validity_months` | `INTEGER` | `NULLABLE` | Validity in months (if periodic renewal is required) |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Addition timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Certification definition update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_certifications_org_name ON certifications(organization_id, name);`
 
-### `holder_certifications` (הכשרות למחזיקים)
-טבלת קשר המייצגת תעודות פעילות. רשומה עשויה להתעדכן בעת הארכת תוקף.
+### `holder_certifications` (Holder Certifications)
+A junction table representing active certificates. A record may be updated upon validity extension.
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה רשומה |
-| `holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | מזהה האדם המחזיק בהכשרה |
-| `certification_id` | `UUID / TEXT` | `NOT NULL, REFERENCES certifications(id)` | מזהה ההכשרה |
-| `acquired_at` | `TIMESTAMPTZ / TEXT` | `NOT NULL` | מועד קבלת ההכשרה |
-| `expires_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | תאריך תפוגה (אם יש) |
-| `certificate_number` | `TEXT` | `NULLABLE` | מספר תעודה / רישיון |
-| `notes` | `TEXT` | `NULLABLE` | הערות |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון פרטי תעודה |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Record identifier |
+| `holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | Identifier of the person holding the certification |
+| `certification_id` | `UUID / TEXT` | `NOT NULL, REFERENCES certifications(id)` | Certification identifier |
+| `acquired_at` | `TIMESTAMPTZ / TEXT` | `NOT NULL` | Date certification was acquired |
+| `expires_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | Expiration date (if applicable) |
+| `certificate_number` | `TEXT` | `NULLABLE` | Certificate / license number |
+| `notes` | `TEXT` | `NULLABLE` | Notes |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Certificate details update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE INDEX idx_holder_cert_holder ON holder_certifications(holder_id);`
 * `CREATE INDEX idx_holder_cert_cert ON holder_certifications(certification_id);`
 
 ---
 
-## 5. קטלוג ציוד ומלאי (Equipment Catalog & Inventory)
+## 5. Equipment Catalog & Inventory
 
-### `item_categories` (קטגוריות ציוד)
-קטלוג קטגוריות מנוהל ברמת הארגון למניעת שגיאות כתיב וכפילויות (למשל: "מחשוב", "קשר", "כלי עבודה", "ציוד מגן").
+### `item_categories` (Equipment Categories)
+An organization-level managed category catalog to prevent typos and duplicates (e.g., "Computing", "Communications", "Tools", "Protective Gear").
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה קטגוריה |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך ארגוני |
-| `name` | `TEXT` | `NOT NULL` | שם הקטגוריה |
-| `description` | `TEXT` | `NULLABLE` | תיאור |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד יצירה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון שם/תיאור קטגוריה |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Category identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `name` | `TEXT` | `NOT NULL` | Category name |
+| `description` | `TEXT` | `NULLABLE` | Description |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Category name/description update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_item_categories_org_name ON item_categories(organization_id, name);`
 
-### `item_types` (סוגי פריטים בקטלוג)
+### `item_types` (Catalog Item Types)
 
-*מיפוי אופן מעקב (`tracking_type`):*
-* `0` = כמותי (ספירת מלאי פשוטה)
-* `1` = סריאלי (ניהול פריט בודד עם מספר סידורי וברקוד)
+*Tracking Type Mapping (`tracking_type`):*
+* `0` = Quantitative (simple inventory counting)
+* `1` = Serialized (individual item management with serial number and barcode)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה סוג פריט |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך ארגוני |
-| `category_id` | `UUID / TEXT` | `NULLABLE, REFERENCES item_categories(id)` | שיוך לקטגוריה מנוהלת |
-| `name` | `TEXT` | `NOT NULL` | שם הדגם / פריט |
-| `tracking_type` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 1` | `0` = כמותי, `1` = סריאלי |
-| `unit_of_measure` | `TEXT` | `DEFAULT 'unit'` | יחידת מידה |
-| `description` | `TEXT` | `NULLABLE` | מפרט והערות |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד יצירה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון מפרט פריט |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Item type identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `category_id` | `UUID / TEXT` | `NULLABLE, REFERENCES item_categories(id)` | Managed category association |
+| `name` | `TEXT` | `NOT NULL` | Model / item name |
+| `tracking_type` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 1` | `0` = Quantitative, `1` = Serialized |
+| `unit_of_measure` | `TEXT` | `DEFAULT 'unit'` | Unit of measure |
+| `description` | `TEXT` | `NULLABLE` | Specifications and notes |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Item specification update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE INDEX idx_item_types_org ON item_types(organization_id);`
 * `CREATE INDEX idx_item_types_category ON item_types(category_id);`
 
-### `serialized_items` (ציוד סריאלי ייחודי)
-ישות מצב דינמית המשלבת משמורת חוקית (`current_holder_id`) לצד מיקום פיזי.
-המיקום הפיזי גמיש (עקרון OR): ניתן לציין ישות רשומה (`location_holder_id`), טקסט חופשי (`location_custom_text`), או את שניהם יחד (למשל: ישות "מחסן ב'" + טקסט חופשי "ארונית 4, מדף עליון").
+### `serialized_items` (Unique Serialized Equipment)
+A dynamic state entity combining legal custody (`current_holder_id`) alongside physical location.
+Physical location is flexible (OR principle): you can specify a registered entity (`location_holder_id`), free text (`location_custom_text`), or both together (e.g., entity "Warehouse B" + free text "Cabinet 4, Top Shelf").
 
-*מיפוי סטטוס פריט (`status`):*
-* `0` = פעיל ותקין (`ACTIVE`)
-* `1` = בטיפול / תקול (`MAINTENANCE`)
-* `2` = אבוד / חסר (`LOST`)
-* `3` = נגרט / יצא משימוש (`DECOMMISSIONED`)
+*Item Status Mapping (`status`):*
+* `0` = Active and operational (`ACTIVE`)
+* `1` = In maintenance / faulty (`MAINTENANCE`)
+* `2` = Lost / missing (`LOST`)
+* `3` = Decommissioned / retired (`DECOMMISSIONED`)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה פריט ייחודי |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | סוג הפריט בקטלוג |
-| `serial_number` | `TEXT` | `NULLABLE` | מספר סידורי של היצרן |
-| `barcode` | `TEXT` | `NOT NULL` | ערך ברקוד / QR לסריקה פיזית |
-| `current_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | המחזיק הרשמי האחראי (אדם או מחסן ראשי) |
-| `location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מיקום פיזי כישות רשומה (מחסן, חדר, רכב) |
-| `location_custom_text` | `TEXT` | `NULLABLE` | מיקום פיזי כטקסט חופשי (פירוט מיקום ספציפי) |
-| `status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | סטטוס מצב הפריט |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד קליטה במערכת |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון סטטוס/מחזיק/מיקום |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Unique item identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | Catalog item type |
+| `serial_number` | `TEXT` | `NULLABLE` | Manufacturer serial number |
+| `barcode` | `TEXT` | `NOT NULL` | Barcode / QR value for physical scanning |
+| `current_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Official responsible custodian (person or main warehouse) |
+| `location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Physical location as a registered entity (warehouse, room, vehicle) |
+| `location_custom_text` | `TEXT` | `NULLABLE` | Physical location as free text (specific location detail) |
+| `status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | Item condition status |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | System intake timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Status/holder/location update timestamp |
 
-*אינדקסים ואילוצים ייחודיים:*
+*Indexes & Unique Constraints:*
 * `CREATE UNIQUE INDEX idx_serialized_org_barcode ON serialized_items(organization_id, barcode);`
 * `CREATE UNIQUE INDEX idx_serialized_org_serial ON serialized_items(organization_id, serial_number) WHERE serial_number IS NOT NULL;`
 * `CREATE INDEX idx_serialized_current_holder ON serialized_items(current_holder_id);`
 * `CREATE INDEX idx_serialized_location_holder ON serialized_items(location_holder_id);`
 * `CREATE INDEX idx_serialized_item_type ON serialized_items(item_type_id);`
 
-### `inventory_stocks` (מלאי כמותי)
-ריכוז כמויות דינמי עבור פריטים כמותיים (`tracking_type = 0`).
+### `inventory_stocks` (Quantitative Inventory)
+Dynamic quantity aggregation for quantitative items (`tracking_type = 0`).
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה שורת מלאי |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | שיוך לקטלוג |
-| `holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | המחזיק במלאי (מחסן או אדם) |
-| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 0` | כמות במלאי |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד שינוי מאזן כמויות אחרון |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Stock row identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | Catalog association |
+| `holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | Stock holder (warehouse or person) |
+| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 0` | Quantity in stock |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Last quantity balance change timestamp |
 
-*אינדקסים ואילוצים:*
+*Indexes & Constraints:*
 * `CREATE UNIQUE INDEX idx_inventory_stocks_holder_item ON inventory_stocks(holder_id, item_type_id);`
 * `CREATE INDEX idx_inventory_stocks_org ON inventory_stocks(organization_id);`
 
 ---
 
-## 6. תבניות העברה מוכנות (Transfer Templates / Kits)
+## 6. Predefined Transfer Templates (Transfer Templates / Kits)
 
-תבניות המאפשרות הגדרת "ערכות ציוד" או העברות חוזרות קבועות (למשל: "ערכת קליטת עובד חדש", "ערכת יציאה לפעילות שטח"). 
-התבנית מגדירה מוצרים מבוקשים וכמויות. בעת הפעלת התבנית להעברה אמיתית, המנהל בוחר או סורק את הפריטים הסריאליים הספציפיים שיועברו בפועל.
+Templates that allow defining "equipment kits" or fixed recurring transfers (e.g., "New Employee Onboarding Kit", "Field Activity Deployment Kit").
+The template defines requested products and quantities. When activating the template for an actual transfer, the admin selects or scans the specific serialized items to be transferred.
 
-### `transfer_templates` (כותרת תבנית העברה)
+### `transfer_templates` (Transfer Template Header)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה תבנית |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `name` | `TEXT` | `NOT NULL` | שם התבנית (למשל: "סט ציוד מנהל עבודה") |
-| `description` | `TEXT` | `NULLABLE` | תיאור התבנית ושימושיה |
-| `default_source_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מקור ברירת מחדל אופציונלי (למשל מחסן ראשי) |
-| `default_dest_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | יעד ברירת מחדל אופציונלי |
-| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = פעיל, `0` = לא פעיל |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד יצירה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון הגדרות התבנית |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Template identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `name` | `TEXT` | `NOT NULL` | Template name (e.g., "Site Manager Equipment Set") |
+| `description` | `TEXT` | `NULLABLE` | Template description and uses |
+| `default_source_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Optional default source (e.g., main warehouse) |
+| `default_dest_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Optional default destination |
+| `is_active` | `INTEGER` | `NOT NULL, DEFAULT 1` | `1` = Active, `0` = Inactive |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Creation timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Template settings update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE UNIQUE INDEX idx_transfer_templates_org_name ON transfer_templates(organization_id, name);`
 
-### `transfer_template_lines` (שורות פריטים בתבנית)
+### `transfer_template_lines` (Template Item Lines)
 
-מפתח ראשי מורכב: `PRIMARY KEY (template_id, line_number)`.
+Composite primary key: `PRIMARY KEY (template_id, line_number)`.
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `template_id` | `UUID / TEXT` | `NOT NULL, REFERENCES transfer_templates(id) ON DELETE CASCADE` | מזהה התבנית הראשית |
-| `line_number` | `INTEGER` | `NOT NULL` | מספר שורה רץ בתוך התבנית (1, 2, 3...) |
-| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | סוג המוצר בקטלוג |
-| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 1` | כמות נדרשת מהמוצר (לסריאלי או כמותי) |
+| `template_id` | `UUID / TEXT` | `NOT NULL, REFERENCES transfer_templates(id) ON DELETE CASCADE` | Parent template identifier |
+| `line_number` | `INTEGER` | `NOT NULL` | Sequential line number within the template (1, 2, 3...) |
+| `item_type_id` | `UUID / TEXT` | `NOT NULL, REFERENCES item_types(id)` | Catalog product type |
+| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 1` | Required quantity of the product (for serialized or quantitative) |
 
-*אינדקסים:*
-* האינדקס הראשי נוצר אוטומטית על `(template_id, line_number)`.
+*Indexes:*
+* The primary index is automatically created on `(template_id, line_number)`.
 * `CREATE INDEX idx_template_lines_item_type ON transfer_template_lines(item_type_id);`
 
 ---
 
-## 7. יומני תנועה בלתי ניתנים לשינוי (Immutable Activity Logs)
+## 7. Immutable Activity Logs
 
-כל שינוי משמורת (בעלות) או שינוי מיקום פיזי נשמרים כרשומות Append-only בלבד. שורות אלו אינן כוללות `updated_at`.
+Every custody (ownership) change or physical location change is stored strictly as Append-only records. These rows do not include `updated_at`.
 
-### `custody_transfers` (כותרת העברת משמורת/בעלות - Transfer Header)
+### `custody_transfers` (Transfer Header)
 
-* אילוץ עסקי קשיח: כאשר `source_holder_id` או `dest_holder_id` שווים ל-`NULL`, שדה `notes` **חייב להכיל ערך** (לא ריק).
-* אילוץ `CHECK`: `CHECK ((source_holder_id IS NOT NULL AND dest_holder_id IS NOT NULL) OR (notes IS NOT NULL AND TRIM(notes) != ''))`
+* Strict business constraint: When `source_holder_id` or `dest_holder_id` is equal to `NULL`, the `notes` field **must contain a value** (non-empty).
+* `CHECK` constraint: `CHECK ((source_holder_id IS NOT NULL AND dest_holder_id IS NOT NULL) OR (notes IS NOT NULL AND TRIM(notes) != ''))`
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה פנימי של ההעברה |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `transfer_template_id` | `UUID / TEXT` | `NULLABLE, REFERENCES transfer_templates(id)` | שיוך לתבנית אם ההעברה נוצרה על בסיסה |
-| `transfer_number` | `TEXT` | `NOT NULL` | מספר אסמכתא ייחודי בארגון (למשל: "TR-2026-00042") |
-| `admin_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | המנהל שביצע ואישר את ההעברה |
-| `source_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מחזיק מקור (`NULL` = קליטה חיצונית) |
-| `dest_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מחזיק יעד (`NULL` = גריטה / השאלה חיצונית) |
-| `notes` | `TEXT` | `NULLABLE` | חובה אם המקור או היעד הם `NULL` |
-| `transferred_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד ביצוע ההעברה הסופי |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Internal transfer identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `transfer_template_id` | `UUID / TEXT` | `NULLABLE, REFERENCES transfer_templates(id)` | Template association if created from a template |
+| `transfer_number` | `TEXT` | `NOT NULL` | Unique voucher reference number in organization (e.g., "TR-2026-00042") |
+| `admin_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | Admin who executed and authorized the transfer |
+| `source_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Source holder (`NULL` = External Intake) |
+| `dest_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Destination holder (`NULL` = Disposal / External Loan) |
+| `notes` | `TEXT` | `NULLABLE` | Mandatory if source or destination is `NULL` |
+| `transferred_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Final transfer execution timestamp |
 
-*אינדקסים ואילוצים:*
+*Indexes & Constraints:*
 * `CREATE UNIQUE INDEX idx_transfers_org_number ON custody_transfers(organization_id, transfer_number);`
 * `CREATE INDEX idx_transfers_source ON custody_transfers(source_holder_id);`
 * `CREATE INDEX idx_transfers_dest ON custody_transfers(dest_holder_id);`
 * `CREATE INDEX idx_transfers_org_date ON custody_transfers(organization_id, transferred_at DESC);`
 
-### `custody_transfer_lines` (שורות פריטים בהעברת משמורת - Transfer Lines)
+### `custody_transfer_lines` (Transfer Lines)
 
-טבלה תלויה בהעברת האב (Weak Entity).
-* מפתח ראשי מורכב: `PRIMARY KEY (transfer_id, line_number)`.
-* אילוץ `CHECK`: בדיוק אחד משני השדות מוגדר: `(serialized_item_id IS NOT NULL AND item_type_id IS NULL) OR (serialized_item_id IS NULL AND item_type_id IS NOT NULL)`
-* אילוץ `CHECK`: עבור פריט סריאלי `quantity = 1`.
+Weak entity dependent on the parent transfer.
+* Composite primary key: `PRIMARY KEY (transfer_id, line_number)`.
+* `CHECK` constraint: Exactly one of the two fields is set: `(serialized_item_id IS NOT NULL AND item_type_id IS NULL) OR (serialized_item_id IS NULL AND item_type_id IS NOT NULL)`
+* `CHECK` constraint: For a serialized item `quantity = 1`.
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `transfer_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_transfers(id) ON DELETE CASCADE` | מזהה ההעברה הראשית (חלק מהמפתח הראשי) |
-| `line_number` | `INTEGER` | `NOT NULL` | מספר שורה רץ בתוך ההעברה (1, 2, 3...) |
-| `serialized_item_id` | `UUID / TEXT` | `NULLABLE, REFERENCES serialized_items(id)` | פריט סריאלי ספציפי (אם רלוונטי) |
-| `item_type_id` | `UUID / TEXT` | `NULLABLE, REFERENCES item_types(id)` | סוג פריט כמותי (אם רלוונטי) |
-| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 1` | כמות שהועברה (לסריאלי: תמיד 1) |
+| `transfer_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_transfers(id) ON DELETE CASCADE` | Parent transfer identifier (part of primary key) |
+| `line_number` | `INTEGER` | `NOT NULL` | Sequential line number within the transfer (1, 2, 3...) |
+| `serialized_item_id` | `UUID / TEXT` | `NULLABLE, REFERENCES serialized_items(id)` | Specific serialized item (if applicable) |
+| `item_type_id` | `UUID / TEXT` | `NULLABLE, REFERENCES item_types(id)` | Quantitative item type (if applicable) |
+| `quantity` | `INTEGER` | `NOT NULL, DEFAULT 1` | Transferred quantity (for serialized: always 1) |
 
-*אינדקסים:*
-* האינדקס הראשי נוצר אוטומטית על `(transfer_id, line_number)`.
+*Indexes:*
+* The primary index is automatically created on `(transfer_id, line_number)`.
 * `CREATE INDEX idx_transfer_lines_serialized_item ON custody_transfer_lines(serialized_item_id);`
 
-### `serialized_item_location_logs` (יומן שינויי מיקום פיזי בלבד - Location Audit Log)
+### `serialized_item_location_logs` (Physical Location Changes Only – Location Audit Log)
 
-מתעד שינוי במיקום הפיזי של מוצר סריאלי ללא שינוי בעלות/משמורת (למשל: הזזה ממדף א' למדף ב', העברה לחדר בדיקות, או השאלה רגעית).
-* אילוץ `CHECK` ליעד: לפחות אחד מהשדות (ישות מיקום או טקסט) חייב להיות מוגדר:
+Records a change in the physical location of a serialized product without a change in ownership/custody (e.g., moving from Shelf A to Shelf B, moving to a testing room, or a momentary loan).
+* `CHECK` constraint for destination: At least one of the fields (location entity or text) must be set:
   `CHECK (to_location_holder_id IS NOT NULL OR to_location_custom_text IS NOT NULL)`
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה ייחודי של רישום שינוי המיקום |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `serialized_item_id` | `UUID / TEXT` | `NOT NULL, REFERENCES serialized_items(id)` | הפריט שהוזז |
-| `admin_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | המשתמש/מנהל שעדכן את המיקום |
-| `from_location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מיקום ישות קודם |
-| `from_location_custom_text` | `TEXT` | `NULLABLE` | מיקום טקסט חופשי קודם |
-| `to_location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מיקום ישות חדש (אם נבחר מחסן/חדר רשום) |
-| `to_location_custom_text` | `TEXT` | `NULLABLE` | מיקום טקסט חופשי חדש |
-| `notes` | `TEXT` | `NULLABLE` | סיבת הזזה / הערות נוספות |
-| `recorded_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | חותמת זמן מדויקת של שינוי המיקום |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Unique identifier of the location change record |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `serialized_item_id` | `UUID / TEXT` | `NOT NULL, REFERENCES serialized_items(id)` | The item that was moved |
+| `admin_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | User/admin who updated the location |
+| `from_location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Previous entity location |
+| `from_location_custom_text` | `TEXT` | `NULLABLE` | Previous free-text location |
+| `to_location_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | New entity location (if a registered warehouse/room was selected) |
+| `to_location_custom_text` | `TEXT` | `NULLABLE` | New free-text location |
+| `notes` | `TEXT` | `NULLABLE` | Reason for move / additional notes |
+| `recorded_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Exact timestamp of the location change |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE INDEX idx_location_logs_item ON serialized_item_location_logs(serialized_item_id);`
 * `CREATE INDEX idx_location_logs_org_date ON serialized_item_location_logs(organization_id, recorded_at);`
 
 ---
 
-## 8. ביקורות שטח ורשימת תיוג לסריקות (Field Audits & Item Records)
+## 8. Field Audits & Scan Checklists (Field Audits & Item Records)
 
-מודל הביקורת מבוסס על **רשימת תיוג שנוצרת מראש (Pre-populated Checklist)** בעת פתיחת הסבב:
-1. בעת פתיחת סבב ביקורת (עבור כלל הארגון או ממוקד למחלקה/מחזיקים), המערכת מייצרת רשומות ב-`audit_item_records` עבור כל הפריטים הסריאליים הנדרשים לבדיקה בסבב זה, עם סטטוס התחלתי `0` (ממתין לסריקה).
-2. בכל רגע נתון, התקדמות הביקורת מחושבת ישירות: `(נסרקו / סך כל הרשומות בסבב) * 100`.
-3. כאשר משתמש סורק פריט:
-   * אם הפריט קיים בסבב: הרשומה מתעדכנת לסטטוס `1` (נסרק תקין) או `2` (חריגה במחזיק), בצירוף מזהה הסורק ושעת הסריקה.
-   * אם נסרק פריט שלא היה מוגדר ברשימת הבדיקה המקורית: נוצרת שורה עם סטטוס `3` (פריט בלתי צפוי שנסרק).
+The audit model is based on a **Pre-populated Checklist** generated when the session opens:
+1. When opening an audit session (for the entire organization or scoped to a department/holders), the system generates records in `audit_item_records` for all serialized items required for inspection in this session, with an initial status of `0` (Pending scan).
+2. At any given moment, audit progress is calculated directly: `(Scanned / Total records in session) * 100`.
+3. When a user scans an item:
+   * If the item exists in the session: the record is updated to status `1` (Verified) or `2` (Custody mismatch), along with the scanner's ID and scan timestamp.
+   * If an item is scanned that was not defined in the original checklist: a row is created with status `3` (Unexpected item scanned).
 
-### `audit_sessions` (סבבי ביקורת)
+### `audit_sessions` (Audit Sessions)
 
-*מיפוי סטטוס ביקורת (`status`):*
-* `0` = פתוחה לסריקות (`OPEN`)
-* `1` = סגורה (`CLOSED`)
-* `2` = בארכיון (`ARCHIVED`)
+*Audit Status Mapping (`status`):*
+* `0` = Open for scanning (`OPEN`)
+* `1` = Closed (`CLOSED`)
+* `2` = Archived (`ARCHIVED`)
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה סבב ביקורת |
-| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | שיוך לארגון |
-| `title` | `TEXT` | `NOT NULL` | כותרת הביקורת (למשל: "מסדר ציוד רבעוני מחלקת מבצעים") |
-| `initiated_by_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | המנהל שפתח את הביקורת |
-| `status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | סטטוס הביקורת |
-| `opened_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד פתיחה |
-| `closed_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | מועד סגירה |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון סטטוס/כותרת הביקורת |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Audit session identifier |
+| `organization_id` | `UUID / TEXT` | `NOT NULL, REFERENCES organizations(id)` | Organization association |
+| `title` | `TEXT` | `NOT NULL` | Audit title (e.g., "Quarterly Equipment Inspection - Operations Dept") |
+| `initiated_by_holder_id` | `UUID / TEXT` | `NOT NULL, REFERENCES custody_holders(id)` | Admin who opened the audit |
+| `status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | Audit status |
+| `opened_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Opening timestamp |
+| `closed_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | Closing timestamp |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Audit status/title update timestamp |
 
-*אינדקסים:*
+*Indexes:*
 * `CREATE INDEX idx_audit_sessions_org ON audit_sessions(organization_id);`
 
-### `audit_item_records` (רשומות מעקב סריקה לכל פריט בסבב)
+### `audit_item_records` (Scan Tracking Records for Each Item in Session)
 
-*מיפוי סטטוס סריקה (`scan_status`):*
-* `0` = ממתין לסריקה (`PENDING`) - נוצר בעת פתיחת הביקורת, טרם נסרק
-* `1` = נסרק תקין (`VERIFIED`) - נסרק על ידי המחזיק הרשום הצפוי
-* `2` = חריגה במחזיק (`MISMATCH`) - נסרק אצל מישהו שאינו המחזיק הרשום
-* `3` = פריט לא צפוי (`UNEXPECTED`) - פריט שלא היה מיועד להיסקר בסבב זה ונסרק בפועל
+*Scan Status Mapping (`scan_status`):*
+* `0` = Pending scan (`PENDING`) - created when opening the audit, not yet scanned
+* `1` = Verified (`VERIFIED`) - scanned by the expected registered custodian
+* `2` = Custody mismatch (`MISMATCH`) - scanned by someone other than the registered custodian
+* `3` = Unexpected item (`UNEXPECTED`) - item not designated for scanning in this session that was actually scanned
 
-| שדה | טיפוס | אילוצים / ברירת מחדל | תיאור |
+| Field | Type | Constraints / Default | Description |
 | :--- | :--- | :--- | :--- |
-| `id` | `UUID / TEXT` | `PRIMARY KEY` | מזהה ייחודי של שורת המעקב |
-| `audit_session_id` | `UUID / TEXT` | `NOT NULL, REFERENCES audit_sessions(id) ON DELETE CASCADE` | שיוך לסבב ביקורת ספציפי |
-| `serialized_item_id` | `UUID / TEXT` | `NOT NULL, REFERENCES serialized_items(id)` | הפריט הסריאלי שמבוקר |
-| `expected_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | המחזיק הרשום במערכת בעת פתיחת הסבב |
-| `scan_status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | סטטוס מעקב נוכחי (`0`=ממתין, `1`=תקין, `2`=חריגה, `3`=לא צפוי) |
-| `scanned_by_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | האדם שביצע את הסריקה בפועל |
-| `scanned_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | חותמת זמן מדויקת שבה הפריט נסרק פיזית |
-| `resolved_by_admin_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | מנהל שאישר/פתר חריגה (אם הייתה כזו) |
-| `resolution_notes` | `TEXT` | `NULLABLE` | נימוק או פעולה שננקטה בעקבות חריגה |
-| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד יצירת הרשומה (פתיחת הביקורת) |
-| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | מועד עדכון אחרון (סריקה / פתרון חריגה) |
+| `id` | `UUID / TEXT` | `PRIMARY KEY` | Unique tracking row identifier |
+| `audit_session_id` | `UUID / TEXT` | `NOT NULL, REFERENCES audit_sessions(id) ON DELETE CASCADE` | Association to specific audit session |
+| `serialized_item_id` | `UUID / TEXT` | `NOT NULL, REFERENCES serialized_items(id)` | Audited serialized item |
+| `expected_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Registered holder in system when session opened |
+| `scan_status` | `SMALLINT / INTEGER` | `NOT NULL, DEFAULT 0` | Current tracking status (`0`=Pending, `1`=Verified, `2`=Mismatch, `3`=Unexpected) |
+| `scanned_by_holder_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Person who actually performed the scan |
+| `scanned_at` | `TIMESTAMPTZ / TEXT` | `NULLABLE` | Exact timestamp when item was physically scanned |
+| `resolved_by_admin_id` | `UUID / TEXT` | `NULLABLE, REFERENCES custody_holders(id)` | Admin who approved/resolved a discrepancy (if any) |
+| `resolution_notes` | `TEXT` | `NULLABLE` | Reasoning or action taken following a discrepancy |
+| `created_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Record creation timestamp (audit opening) |
+| `updated_at` | `TIMESTAMPTZ / TEXT` | `DEFAULT CURRENT_TIMESTAMP` | Last update timestamp (scan / discrepancy resolution) |
 
-*אינדקסים ואילוצים:*
+*Indexes & Constraints:*
 * `CREATE UNIQUE INDEX idx_audit_item_session_item ON audit_item_records(audit_session_id, serialized_item_id);`
 * `CREATE INDEX idx_audit_item_session_status ON audit_item_records(audit_session_id, scan_status);`
 * `CREATE INDEX idx_audit_item_holder ON audit_item_records(scanned_by_holder_id);`
