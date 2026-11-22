@@ -1,0 +1,12 @@
+[general]
+namespace = "Rashmatz.Shared.Schema"
+output = "src/shared/Schema.Generated.fs"
+provider = "sqlite"
+connection_string = "Data Source=rashmatz.db"
+
+[sqlhydra_query]
+sqlhydra_query_integration = true
+
+[readers]
+cli_mutable = true
+reader_type = "System.Data.Common.DbDataReader"
