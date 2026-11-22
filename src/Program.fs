@@ -117,15 +117,16 @@ module Program =
         (googleValidator: IGoogleTokenValidator)
         (devModeEnabled: bool)
         =
-        let endpoints = AppRoutes.buildEndpoints db googleValidator devModeEnabled
-        app.UseRouting().UseOxpecker(endpoints) |> ignore
+        AppRoutes.buildEndpoints db googleValidator devModeEnabled
+        |> app.UseRouting().UseOxpecker
+        |> ignore
 
     [<EntryPoint>]
     let main args =
         let initOnly = args |> Array.exists (fun a -> a = "--init-db")
         let seedAndExit = args |> Array.exists (fun a -> a = "--seed-db")
 
-        let builder = WebApplication.CreateBuilder(args)
+        let builder = WebApplication.CreateBuilder args
 
         let connString =
             ofNullableTrimmed builder.Configuration["ConnectionStrings:Sqlite"]
@@ -133,7 +134,7 @@ module Program =
 
         // Constructing SqliteDbContext automatically creates rashmatz.db if missing,
         // enables WAL + foreign_keys + busy_timeout, and creates all 17 tables & indexes!
-        let dbContext = Database.SqliteDbContext(connString) :> IDbContext
+        let dbContext = Database.SqliteDbContext connString :> IDbContext
 
         if initOnly then
             printfn "[Rashmatz DB] SQLite schema and WAL mode initialized successfully (%s)." connString
@@ -163,7 +164,7 @@ module Program =
                     summary.AdminEmail
                     summary.MemberEmail
 
-            builder.Services.AddSingleton<IDbContext>(dbContext) |> ignore
+            dbContext |> builder.Services.AddSingleton<IDbContext> |> ignore
             builder.Services.AddHttpClient() |> ignore
 
             builder.Services.AddSingleton<IGoogleTokenValidator>(fun sp ->
