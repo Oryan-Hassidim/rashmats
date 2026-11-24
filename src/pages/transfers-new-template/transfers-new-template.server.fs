@@ -1,76 +1,35 @@
 namespace Rashmatz.Pages.TransfersNewTemplate
 
-open System.Text.Json.Serialization
-open System.Threading.Tasks
 open Oxpecker
+open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
-open Rashmatz.Shared.Schema
 
-/// Vertical Slice for Page 6A: Step 1 - Choosing a Transfer Template or Free Transfer (`/transfers/new/template`)
-/// Co-located inside `src/pages/transfers-new-template/transfers-new-template.server.fs`.
-/// Returns active template headers ONLY (without template line items) to minimize payload size.
+/// Vertical Slice — Page 6A: Choose Transfer Template or Free Transfer (`/transfers/new/template`)
 module Server =
 
-    type TransferTemplateHeaderDto =
-        { [<JsonPropertyName("id")>]
-          Id: string
-          [<JsonPropertyName("name")>]
-          Name: string
-          [<JsonPropertyName("description")>]
-          Description: string option
-          [<JsonPropertyName("default_source_holder_id")>]
-          DefaultSourceHolderId: string option
-          [<JsonPropertyName("default_dest_holder_id")>]
-          DefaultDestHolderId: string option }
+    type TemplateHeader =
+        { Id: string; Name: string; Description: string option
+          DefaultSourceHolderId: string option; DefaultDestHolderId: string option }
 
-    type TransfersNewTemplatePageDto =
-        { [<JsonPropertyName("templates")>]
-          Templates: TransferTemplateHeaderDto list }
-
-    let loadTemplateHeadersAsync
-        (db: IDbContext)
-        (auth: AuthenticatedContext)
-        : Task<TransferTemplateHeaderDto list> =
-        task {
-            use conn = db.OpenReadConnection()
-            let orgIdStr = auth.ActiveOrg.OrganizationId.ToDbString()
-
-            let rows =
-                conn
-                |> Db.newCommand
-                    """
-                    SELECT id, organization_id, name, description, default_source_holder_id, default_dest_holder_id, is_active, created_at, updated_at
-                    FROM transfer_templates
-                    WHERE organization_id = @org_id AND is_active = 1
-                    ORDER BY name ASC
-                    """
-                |> Db.setParams [ "org_id", SqlType.String orgIdStr ]
-                |> Db.query main.Readers.read_transfer_templates
-
-            return
-                rows
-                |> List.map (fun (t: main.transfer_templates) ->
-                    { Id = t.id
-                      Name = t.name
-                      Description = t.description
-                      DefaultSourceHolderId = t.default_source_holder_id
-                      DefaultDestHolderId = t.default_dest_holder_id })
-        }
-
-    let getTransfersNewTemplateBootstrapHandler (db: IDbContext) (devMode: bool) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                let! auth = Auth.requireAdmin db devMode ctx
-                let! navbar = Navbar.buildNavbarAsync db ctx auth
-                let! templates = loadTemplateHeadersAsync db auth
-
-                return
-                    ({ Navbar = navbar
-                       Page = { Templates = templates } }
-                    : Navbar.BootstrapEnvelopeDto<TransfersNewTemplatePageDto>)
-            })
+    type TransfersNewTemplatePage = { Templates: TemplateHeader list }
 
     let endpoints (db: IDbContext) (devMode: bool) : Endpoint list =
-        [ GET [ route "/pages/transfers-new-template" (getTransfersNewTemplateBootstrapHandler db devMode) ] ]
+        [ GET [
+            route "/pages/transfers-new-template" (Http.runWorkflow (fun ctx ->
+                taskResult {
+                    let! auth = Auth.requireAdmin db devMode ctx
+                    use conn = db.OpenRead()
+                    let templates =
+                        conn
+                        |> Db.newCommand "SELECT id, name, description, default_source_holder_id, default_dest_holder_id FROM transfer_templates WHERE organization_id=@org AND is_active=1 ORDER BY name"
+                        |> Db.setParams [ "org", SqlType.String auth.ActiveOrg.OrgId.Str ]
+                        |> Db.query (fun rd ->
+                            { Id = rd.ReadString "id"; Name = rd.ReadString "name"; Description = rd.ReadStringOption "description"
+                              DefaultSourceHolderId = rd.ReadStringOption "default_source_holder_id"
+                              DefaultDestHolderId = rd.ReadStringOption "default_dest_holder_id" })
+                    return ({ Navbar = Navbar.build db ctx auth; Page = { Templates = templates } } : Navbar.PageEnvelope<TransfersNewTemplatePage>)
+                }))
+            |> addOpenApiSimple<unit, Navbar.PageEnvelope<TransfersNewTemplatePage>>
+          ] ]

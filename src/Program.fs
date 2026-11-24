@@ -2,182 +2,177 @@ namespace Rashmatz
 
 open System
 open System.Net.Http
+open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Builder
-open Microsoft.AspNetCore.Hosting
-open Microsoft.AspNetCore.Http
 open Microsoft.Extensions.DependencyInjection
 open Microsoft.Extensions.Hosting
 open Oxpecker
+open Oxpecker.OpenApi
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
-open Rashmatz.Shared.DomainTypes
 
-/// Default production Google Token Validator (can be replaced in DI by any mock IGoogleTokenValidator in tests).
 type ProductionGoogleTokenValidator(httpClient: HttpClient) =
     interface IGoogleTokenValidator with
-        member _.ValidateIdTokenAsync(idToken: string) : Task<Result<GoogleUserPayload, ApiError>> =
+        member _.ValidateAsync(idToken: string) =
             task {
-                if String.IsNullOrWhiteSpace(idToken) then
+                if String.IsNullOrWhiteSpace idToken then
                     return Error(ApiError.single ApiErrorCode.InvalidGoogleToken)
                 else
                     try
-                        let url =
-                            "https://oauth2.googleapis.com/tokeninfo?id_token="
-                            + Uri.EscapeDataString(idToken)
+                        let! resp =
+                            httpClient.GetAsync(
+                                "https://oauth2.googleapis.com/tokeninfo?id_token="
+                                + Uri.EscapeDataString idToken
+                            )
 
-                        let! response = httpClient.GetAsync(url)
-
-                        if not response.IsSuccessStatusCode then
+                        if not resp.IsSuccessStatusCode then
                             return Error(ApiError.single ApiErrorCode.InvalidGoogleToken)
                         else
-                            use! stream = response.Content.ReadAsStreamAsync()
-                            use! doc = System.Text.Json.JsonDocument.ParseAsync(stream)
+                            use! stream = resp.Content.ReadAsStreamAsync()
+                            use! doc = JsonDocument.ParseAsync stream
                             let root = doc.RootElement
 
-                            let subOpt = ofNullableTrimmed (root.GetProperty("sub").GetString())
-                            let emailOpt = ofNullableTrimmed (root.GetProperty("email").GetString())
-
-                            match subOpt, emailOpt with
+                            match trimNullable (root.GetProperty("sub").GetString()),
+                                  trimNullable (root.GetProperty("email").GetString())
+                                with
                             | Some sub, Some email ->
                                 let name =
                                     match root.TryGetProperty("name") with
-                                    | true, p -> ofNullableTrimmed (p.GetString()) |> Option.defaultValue email
-                                    | false, _ -> email
+                                    | true, p ->
+                                        trimNullable (p.GetString())
+                                        |> Option.defaultValue email
+                                    | _ -> email
 
-                                let pictureOpt =
+                                let pic =
                                     match root.TryGetProperty("picture") with
-                                    | true, p -> ofNullableTrimmed (p.GetString())
-                                    | false, _ -> None
+                                    | true, p -> trimNullable (p.GetString())
+                                    | _ -> None
 
                                 return
                                     Ok
-                                        { GoogleSubject = sub
+                                        { Subject = sub
                                           Email = email.ToLowerInvariant()
                                           FullName = name
-                                          AvatarUrl = pictureOpt }
+                                          AvatarUrl = pic }
                             | _ -> return Error(ApiError.single ApiErrorCode.InvalidGoogleToken)
-                    with _ ->
-                        return Error(ApiError.single ApiErrorCode.InvalidGoogleToken)
+                    with
+                    | _ -> return Error(ApiError.single ApiErrorCode.InvalidGoogleToken)
             }
 
-module AppRoutes =
+module App =
 
-    let postCreateOrganizationHandler (db: IDbContext) (devMode: bool) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                let! auth = Auth.requireSuperAdmin db devMode ctx
-                let! req = Http.bindJsonSafe<Navbar.CreateOrganizationRequestDto> ctx
-                return! Navbar.createOrganizationWorkflow db auth req
-            })
+    let registerServices (services: IServiceCollection) =
+        services.AddRouting() |> ignore
+        services.AddOxpecker() |> ignore
 
-    let postDevSeedHandler (db: IDbContext) (devMode: bool) : EndpointHandler =
-        Http.runWorkflow (fun _ctx ->
-            taskResult {
-                if not devMode then
-                    return! Error(ApiError.single ApiErrorCode.ForbiddenRole)
-                else
-                    return Database.ensureDevelopmentSeed db
-            })
+        services.AddSingleton<IJsonSerializer>(SystemTextJsonSerializer(Http.snakeCaseJsonOptions))
+        |> ignore
 
-    /// Aggregates all Vertical Slice endpoints into a single Oxpecker Endpoint routing tree.
-    let buildEndpoints
-        (db: IDbContext)
-        (googleValidator: IGoogleTokenValidator)
-        (devModeEnabled: bool)
-        : Endpoint list =
-        [ // Shared Global Shell / Super-Admin Organization Creation & Dev DB Seeding
-          POST
-              [ route "/organizations" (postCreateOrganizationHandler db devModeEnabled)
-                route "/dev/seed" (postDevSeedHandler db devModeEnabled) ]
+        services.ConfigureHttpJsonOptions (fun o ->
+            o.SerializerOptions.PropertyNamingPolicy <- JsonNamingPolicy.SnakeCaseLower
+            o.SerializerOptions.PropertyNameCaseInsensitive <- true)
+        |> ignore
 
-          // Page 1: Login & Smart Routing (`src/pages/login/login.server.fs`)
-          yield! Rashmatz.Pages.Login.Server.endpoints db googleValidator devModeEnabled
+        services.AddOpenApi (fun o ->
+            o.AddSchemaTransformer<FSharpOptionSchemaTransformer>()
+            |> ignore)
+        |> ignore
 
-          // Page 2: My Custody & Physical Possession (`src/pages/my-custody/my-custody.server.fs`)
-          yield! Rashmatz.Pages.MyCustody.Server.endpoints db devModeEnabled
+    let buildEndpoints (db: IDbContext) (googleValidator: IGoogleTokenValidator) (devMode: bool) : Endpoint list =
+        [ POST [ route
+                     "/organizations"
+                     (Http.runWorkflow (fun ctx ->
+                         taskResult {
+                             let! auth = Auth.requireSuperAdmin db devMode ctx
+                             let! req = Http.bindJson<Navbar.CreateOrgRequest> ctx
+                             return! Navbar.createOrganization db auth req
+                         }))
+                 |> addOpenApiSimple<Navbar.CreateOrgRequest, Navbar.CreateOrgResponse>
 
-          // Page 5: Quick Physical Relocation (`src/pages/relocate/relocate.server.fs`)
-          yield! Rashmatz.Pages.Relocate.Server.endpoints db devModeEnabled
+                 route
+                     "/dev/seed"
+                     (Http.runWorkflow (fun _ ->
+                         taskResult {
+                             if not devMode then
+                                 return! Error(ApiError.single ApiErrorCode.ForbiddenRole)
+                             else
+                                 return Database.ensureDevSeed db
+                         }))
+                 |> addOpenApiSimple<unit, DevSeedSummary> ]
+          yield! Pages.Login.Server.endpoints db googleValidator devMode
+          yield! Pages.MyCustody.Server.endpoints db devMode
+          yield! Pages.Relocate.Server.endpoints db devMode
+          yield! Pages.TransfersNewTemplate.Server.endpoints db devMode
+          yield! Pages.TransfersNewParties.Server.endpoints db devMode
+          yield! Pages.TransfersNewItems.Endpoints.endpoints db devMode ]
 
-          // Page 6A: Transfer Step 1 - Template Selection (`src/pages/transfers-new-template/transfers-new-template.server.fs`)
-          yield! Rashmatz.Pages.TransfersNewTemplate.Server.endpoints db devModeEnabled
+    let configure (app: WebApplication) (db: IDbContext) (googleValidator: IGoogleTokenValidator) (devMode: bool) =
+        app.MapOpenApi() |> ignore
 
-          // Page 6B: Transfer Step 2 - Parties Selection (`src/pages/transfers-new-parties/transfers-new-parties.server.fs`)
-          yield! Rashmatz.Pages.TransfersNewParties.Server.endpoints db devModeEnabled
-
-          // Page 6C: Transfer Step 3 - Items, Balances, Intake & Execution (`src/pages/transfers-new-items/TransfersNewItems.Endpoints.fs`)
-          yield! Rashmatz.Pages.TransfersNewItems.Endpoints.endpoints db devModeEnabled ]
+        app
+            .UseRouting()
+            .UseOxpecker(buildEndpoints db googleValidator devMode)
+        |> ignore
 
 module Program =
 
-    let configureApp
-        (app: IApplicationBuilder)
-        (db: IDbContext)
-        (googleValidator: IGoogleTokenValidator)
-        (devModeEnabled: bool)
-        =
-        AppRoutes.buildEndpoints db googleValidator devModeEnabled
-        |> app.UseRouting().UseOxpecker
-        |> ignore
-
     [<EntryPoint>]
     let main args =
-        let initOnly = args |> Array.exists (fun a -> a = "--init-db")
-        let seedAndExit = args |> Array.exists (fun a -> a = "--seed-db")
-
         let builder = WebApplication.CreateBuilder args
 
-        let connString =
-            ofNullableTrimmed builder.Configuration["ConnectionStrings:Sqlite"]
+        let connStr =
+            trimNullable builder.Configuration["ConnectionStrings:Sqlite"]
             |> Option.defaultValue "Data Source=rashmatz.db"
 
-        // Constructing SqliteDbContext automatically creates rashmatz.db if missing,
-        // enables WAL + foreign_keys + busy_timeout, and creates all 17 tables & indexes!
-        let dbContext = Database.SqliteDbContext connString :> IDbContext
+        let db = Database.SqliteDbContext(connStr) :> IDbContext
 
-        if initOnly then
-            printfn "[Rashmatz DB] SQLite schema and WAL mode initialized successfully (%s)." connString
+        if args |> Array.contains "--init-db" then
+            printfn "[Rashmatz] SQLite schema initialized (%s)." connStr
             0
-        elif seedAndExit then
-            let summary = Database.ensureDevelopmentSeed dbContext
-            printfn "[Rashmatz DB] SQLite database initialized and seeded (%s):" connString
-            printfn "  Organization ID : %s (%s)" summary.OrganizationId summary.OrganizationSlug
-            printfn "  Admin Header    : X-Dev-User-Email: %s (Holder: %s)" summary.AdminEmail summary.AdminHolderId
-            printfn "  Member Header   : X-Dev-User-Email: %s (Holder: %s)" summary.MemberEmail summary.MemberHolderId
-            printfn "  Warehouse ID    : %s" summary.WarehouseHolderId
-            printfn "  Template ID     : %s" summary.TemplateId
+        elif args |> Array.contains "--seed-db" then
+            let s = Database.ensureDevSeed db
+
+            printfn
+                "[Rashmatz] DB seeded (%s) | Org: %s | Admin: %s | Member: %s"
+                connStr
+                s.OrganizationSlug
+                s.AdminEmail
+                s.MemberEmail
+
             0
         else
-            let devFlag =
-                ofNullableTrimmed builder.Configuration["Auth:EnableDevMode"]
-                |> Option.map (fun s -> String.Equals(s, "true", StringComparison.OrdinalIgnoreCase))
-                |> Option.defaultValue false
+            let devMode =
+                builder.Environment.IsDevelopment()
+                || (trimNullable builder.Configuration["Auth:EnableDevMode"]
+                    |> Option.exists (fun v -> v.Equals("true", StringComparison.OrdinalIgnoreCase)))
 
-            let devModeEnabled = builder.Environment.IsDevelopment() || devFlag
+            if devMode then
+                let s = Database.ensureDevSeed db
 
-            if devModeEnabled then
-                let summary = Database.ensureDevelopmentSeed dbContext
-                printfn "[Rashmatz Dev Mode] SQLite DB ready (%s) | Org: %s | Admin: %s | Member: %s"
-                    connString
-                    summary.OrganizationSlug
-                    summary.AdminEmail
-                    summary.MemberEmail
+                printfn
+                    "[Rashmatz Dev] OpenAPI: /openapi/v1.json | Org: %s | Admin: %s | Member: %s"
+                    s.OrganizationSlug
+                    s.AdminEmail
+                    s.MemberEmail
 
-            dbContext |> builder.Services.AddSingleton<IDbContext> |> ignore
-            builder.Services.AddHttpClient() |> ignore
-
-            builder.Services.AddSingleton<IGoogleTokenValidator>(fun sp ->
-                let factory = sp.GetRequiredService<IHttpClientFactory>()
-                ProductionGoogleTokenValidator(factory.CreateClient()) :> IGoogleTokenValidator)
+            builder.Services.AddSingleton<IDbContext>(db)
             |> ignore
 
-            builder.Services.AddRouting() |> ignore
-            builder.Services.AddOxpecker() |> ignore
+            builder.Services.AddHttpClient() |> ignore
+
+            builder.Services.AddSingleton<IGoogleTokenValidator> (fun sp ->
+                ProductionGoogleTokenValidator(
+                    sp
+                        .GetRequiredService<IHttpClientFactory>()
+                        .CreateClient()
+                )
+                :> IGoogleTokenValidator)
+            |> ignore
+
+            App.registerServices builder.Services
 
             let app = builder.Build()
-            let validator = app.Services.GetRequiredService<IGoogleTokenValidator>()
-            configureApp app dbContext validator devModeEnabled
-
+            App.configure app db (app.Services.GetRequiredService<IGoogleTokenValidator>()) devMode
             app.Run()
             0

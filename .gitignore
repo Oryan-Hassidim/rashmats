@@ -486,4 +486,10 @@ $RECYCLE.BIN/
 # Vim temporary swap files
 *.swp
 
+# SQLite database files
 *.db
+*.db-shm
+*.db-wal
+
+# schemathesis
+.schemathesis/

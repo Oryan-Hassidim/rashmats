@@ -1,534 +1,170 @@
 namespace Rashmatz.Pages.TransfersNewItems
 
-open System
-open System.Text.Json.Serialization
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
-open Rashmatz.Shared.DomainTypes
 
-/// Step 6C Domain Module (`TransfersNewItems.Domain.fs`):
-/// Pure functional domain modeling following Scott Wlaschin's "Domain Modeling Made Functional".
-/// Makes illegal transfer states unrepresentable at the type level:
-/// - External Intake (`source = None`) and Disposal (`dest = None`) require `NonEmptyString` notes.
-/// - Internal Transfer (`source = Some`, `dest = Some`) guarantees `source <> dest`.
-/// - Uses `FsToolkit.ErrorHandling` `validation { ... }` to collect all multi-field errors simultaneously.
+/// Step 6C Domain — Clean DTOs (auto snake_case), Scott Wlaschin sum types, and applicative `validation { ... }`.
 module Domain =
 
-    // =========================================================================
-    // 1. Read Models / Bootstrap DTOs for Page 6C
-    // =========================================================================
+    // ── Read Models & Wire DTOs ──────────────────────────────────────────────
+    type TemplateLine = { LineNumber: int; ItemTypeId: string; ItemTypeName: string; TrackingType: int; Quantity: int }
+    type SelectedTemplate = { Id: string; Name: string; Description: string option; DefaultSourceHolderId: string option; DefaultDestHolderId: string option; Lines: TemplateLine list }
+    type CatalogItemType = { Id: string; CategoryId: string option; CategoryName: string option; Name: string; TrackingType: int; UnitOfMeasure: string; Description: string option }
+    type SourceSerializedItem = { Id: string; ItemTypeId: string; ItemTypeName: string; CategoryId: string option; UnitOfMeasure: string; Barcode: string; SerialNumber: string option; Status: int; LocationHolderId: string option; LocationCustomText: string option }
+    type SourceQuantBalance = { ItemTypeId: string; ItemTypeName: string; CategoryId: string option; UnitOfMeasure: string; Quantity: int }
+    type DestBalance = { ItemTypeId: string; TrackingType: int; CurrentQuantity: int }
 
-    type TemplateLineDto =
-        { [<JsonPropertyName("line_number")>]
-          LineNumber: int
-          [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string
-          [<JsonPropertyName("item_type_name")>]
-          ItemTypeName: string
-          [<JsonPropertyName("tracking_type")>]
-          TrackingType: int
-          [<JsonPropertyName("quantity")>]
-          Quantity: int }
+    type TransfersNewItemsPage =
+        { SourceHolderId: string option; DestHolderId: string option
+          Categories: Rashmatz.Pages.MyCustody.Server.CategorySummary list
+          SourceSerializedItems: SourceSerializedItem list
+          SourceQuantitativeBalances: SourceQuantBalance list
+          DestBalances: DestBalance list
+          SelectedTemplate: SelectedTemplate option
+          IntakeCatalogItemTypes: CatalogItemType list option }
 
-    type SelectedTemplateWithLinesDto =
-        { [<JsonPropertyName("id")>]
-          Id: string
-          [<JsonPropertyName("name")>]
-          Name: string
-          [<JsonPropertyName("description")>]
-          Description: string option
-          [<JsonPropertyName("default_source_holder_id")>]
-          DefaultSourceHolderId: string option
-          [<JsonPropertyName("default_dest_holder_id")>]
-          DefaultDestHolderId: string option
-          [<JsonPropertyName("lines")>]
-          Lines: TemplateLineDto list }
-
-    type CatalogItemTypeDto =
-        { [<JsonPropertyName("id")>]
-          Id: string
-          [<JsonPropertyName("category_id")>]
-          CategoryId: string option
-          [<JsonPropertyName("category_name")>]
-          CategoryName: string option
-          [<JsonPropertyName("name")>]
-          Name: string
-          [<JsonPropertyName("tracking_type")>]
-          TrackingType: int
-          [<JsonPropertyName("unit_of_measure")>]
-          UnitOfMeasure: string
-          [<JsonPropertyName("description")>]
-          Description: string option }
-
-    type HolderSerializedItemDto =
-        { [<JsonPropertyName("id")>]
-          Id: string
-          [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string
-          [<JsonPropertyName("item_type_name")>]
-          ItemTypeName: string
-          [<JsonPropertyName("category_id")>]
-          CategoryId: string option
-          [<JsonPropertyName("unit_of_measure")>]
-          UnitOfMeasure: string
-          [<JsonPropertyName("barcode")>]
-          Barcode: string
-          [<JsonPropertyName("serial_number")>]
-          SerialNumber: string option
-          [<JsonPropertyName("status")>]
-          Status: int
-          [<JsonPropertyName("location_holder_id")>]
-          LocationHolderId: string option
-          [<JsonPropertyName("location_custom_text")>]
-          LocationCustomText: string option }
-
-    type HolderQuantitativeBalanceDto =
-        { [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string
-          [<JsonPropertyName("item_type_name")>]
-          ItemTypeName: string
-          [<JsonPropertyName("category_id")>]
-          CategoryId: string option
-          [<JsonPropertyName("unit_of_measure")>]
-          UnitOfMeasure: string
-          [<JsonPropertyName("quantity")>]
-          Quantity: int }
-
-    type DestinationItemBalanceDto =
-        { [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string
-          [<JsonPropertyName("tracking_type")>]
-          TrackingType: int
-          [<JsonPropertyName("current_quantity")>]
-          CurrentQuantity: int }
-
-    type TransfersNewItemsPageDto =
-        { [<JsonPropertyName("source_holder_id")>]
-          SourceHolderId: string option
-          [<JsonPropertyName("dest_holder_id")>]
-          DestHolderId: string option
-          [<JsonPropertyName("categories")>]
-          Categories: Rashmatz.Pages.MyCustody.Server.CategorySummaryDto list
-          [<JsonPropertyName("source_serialized_items")>]
-          SourceSerializedItems: HolderSerializedItemDto list
-          [<JsonPropertyName("source_quantitative_balances")>]
-          SourceQuantitativeBalances: HolderQuantitativeBalanceDto list
-          [<JsonPropertyName("dest_balances")>]
-          DestBalances: DestinationItemBalanceDto list
-          [<JsonPropertyName("selected_template")>]
-          SelectedTemplate: SelectedTemplateWithLinesDto option
-          [<JsonPropertyName("intake_catalog_item_types")>]
-          IntakeCatalogItemTypes: CatalogItemTypeDto list option }
-
-    // =========================================================================
-    // 2. Wire Request / Response DTOs for Page 6C Commands & Queries
-    // =========================================================================
+    [<CLIMutable>] type CheckUnassignedQuery = { Barcode: string option; SerialNumber: string option }
+    type CheckUnassignedResponse = { BarcodeAvailable: bool; SerialNumberAvailable: bool; ConflictingItemId: string option }
+    [<CLIMutable>] type CreateItemTypeRequest = { Name: string option; CategoryId: string option; NewCategoryName: string option; TrackingType: int option; UnitOfMeasure: string option; Description: string option }
+    [<CLIMutable>] type IntakeSerializedInput = { ItemTypeId: string option; Barcode: string option; SerialNumber: string option }
+    [<CLIMutable>] type QuantLineInput = { ItemTypeId: string option; Quantity: int }
 
     [<CLIMutable>]
-    type CheckUnassignedItemQueryDto =
-        { [<JsonPropertyName("barcode")>]
-          Barcode: string option
-          [<JsonPropertyName("serial_number")>]
-          SerialNumber: string option }
-
-    type CheckUnassignedItemResponseDto =
-        { [<JsonPropertyName("barcode_available")>]
-          BarcodeAvailable: bool
-          [<JsonPropertyName("serial_number_available")>]
-          SerialNumberAvailable: bool
-          [<JsonPropertyName("conflicting_item_id")>]
-          ConflictingItemId: string option }
-
-    [<CLIMutable>]
-    type CreateItemTypeRequestDto =
-        { [<JsonPropertyName("name")>]
-          Name: string option
-          [<JsonPropertyName("category_id")>]
-          CategoryId: string option
-          [<JsonPropertyName("new_category_name")>]
-          NewCategoryName: string option
-          [<JsonPropertyName("tracking_type")>]
-          TrackingType: int option
-          [<JsonPropertyName("unit_of_measure")>]
-          UnitOfMeasure: string option
-          [<JsonPropertyName("description")>]
-          Description: string option }
-
-    [<CLIMutable>]
-    type TransferSerializedIntakeItemDto =
-        { [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string option
-          [<JsonPropertyName("barcode")>]
-          Barcode: string option
-          [<JsonPropertyName("serial_number")>]
-          SerialNumber: string option }
-
-    [<CLIMutable>]
-    type TransferQuantitativeLineDto =
-        { [<JsonPropertyName("item_type_id")>]
-          ItemTypeId: string option
-          [<JsonPropertyName("quantity")>]
-          Quantity: int }
-
-    [<CLIMutable>]
-    type CommitTransferRequestDto =
-        { [<JsonPropertyName("source_holder_id")>]
-          SourceHolderId: string option
-          [<JsonPropertyName("dest_holder_id")>]
-          DestHolderId: string option
-          [<JsonPropertyName("transfer_template_id")>]
-          TransferTemplateId: string option
-          [<JsonPropertyName("serialized_item_ids")>]
-          SerializedItemIds: string list option
-          [<JsonPropertyName("new_intake_serialized_items")>]
-          NewIntakeSerializedItems: TransferSerializedIntakeItemDto list option
-          [<JsonPropertyName("quantitative_lines")>]
-          QuantitativeLines: TransferQuantitativeLineDto list option
-          [<JsonPropertyName("update_physical_location")>]
-          UpdatePhysicalLocation: bool option
-          [<JsonPropertyName("to_location_holder_id")>]
-          ToLocationHolderId: string option
-          [<JsonPropertyName("to_location_custom_text")>]
-          ToLocationCustomText: string option
-          [<JsonPropertyName("notes")>]
+    type CommitTransferRequest =
+        { SourceHolderId: string option; DestHolderId: string option; TransferTemplateId: string option
+          SerializedItemIds: string list option; NewIntakeSerializedItems: IntakeSerializedInput list option
+          QuantitativeLines: QuantLineInput list option
+          UpdatePhysicalLocation: bool option; ToLocationHolderId: string option; ToLocationCustomText: string option
           Notes: string option }
 
-    type CommitTransferResponseDto =
-        { [<JsonPropertyName("transfer_id")>]
-          TransferId: string
-          [<JsonPropertyName("transfer_number")>]
-          TransferNumber: string
-          [<JsonPropertyName("transferred_at")>]
-          TransferredAt: string
-          [<JsonPropertyName("lines_count")>]
-          LinesCount: int
-          [<JsonPropertyName("physical_location_updated")>]
-          PhysicalLocationUpdated: bool }
+    type CommitTransferResponse = { TransferId: string; TransferNumber: string; TransferredAt: string; LinesCount: int; PhysicalLocationUpdated: bool }
 
-    // =========================================================================
-    // 3. Pure Domain Types (Making Illegal States Unrepresentable)
-    // =========================================================================
+    // ── Domain Commands (Illegal States Unrepresentable) ─────────────────────
+    type CategoryChoice = ExistingCategory of CategoryId | NewCategory of NonEmptyText | Uncategorized
+    type ValidatedCreateItemType = { Name: NonEmptyText; Category: CategoryChoice; TrackingType: TrackingType; UnitOfMeasure: string; Description: string option }
 
-    type CategoryAssignment =
-        | ExistingCategory of CategoryId
-        | CreateNewCategory of NonEmptyString
-        | Uncategorized
+    type TransferParties =
+        | Internal of source: HolderId * dest: HolderId * notes: string option
+        | ExternalIntake of dest: HolderId * notes: NonEmptyText
+        | ExternalDisposal of source: HolderId * notes: NonEmptyText
 
-    type ValidatedCreateItemTypeCommand =
-        { Name: NonEmptyString
-          Category: CategoryAssignment
-          TrackingType: TrackingType
-          UnitOfMeasure: string
-          Description: string option }
+        member x.SourceOpt = match x with Internal(s, _, _) | ExternalDisposal(s, _) -> Some s | ExternalIntake _ -> None
+        member x.DestOpt = match x with Internal(_, d, _) | ExternalIntake(d, _) -> Some d | ExternalDisposal _ -> None
+        member x.NotesOpt = match x with Internal(_, _, n) -> n | ExternalIntake(_, n) | ExternalDisposal(_, n) -> Some n.Value
 
-    /// Enforces db model.md Section 7:
-    /// - InternalTransfer: both source and dest exist, and source <> dest.
-    /// - ExternalIntake: source is None, dest exists, and NonEmptyString notes are strictly mandatory.
-    /// - ExternalDisposal: source exists, dest is None, and NonEmptyString notes are strictly mandatory.
-    type TransferDirectionAndParties =
-        | InternalTransfer of source: HolderId * dest: HolderId * notes: string option
-        | ExternalIntake of dest: HolderId * mandatoryNotes: NonEmptyString
-        | ExternalDisposal of source: HolderId * mandatoryNotes: NonEmptyString
+    type LocationSync = KeepLocation | SyncTo of PhysicalLocation
+    type IntakeSpec = { ItemTypeId: ItemTypeId; Barcode: Barcode; SerialNumber: string option }
+    type QuantSpec = { ItemTypeId: ItemTypeId; Quantity: PositiveQty }
 
-        member this.SourceHolderIdOpt =
-            match this with
-            | InternalTransfer(s, _, _) -> Some s
-            | ExternalIntake _ -> None
-            | ExternalDisposal(s, _) -> Some s
+    type ValidatedTransfer =
+        { Parties: TransferParties; TemplateId: TemplateId option
+          ExistingSerialized: SerializedItemId list; IntakeSerialized: IntakeSpec list
+          QuantLines: QuantSpec list; LocationSync: LocationSync }
 
-        member this.DestHolderIdOpt =
-            match this with
-            | InternalTransfer(_, d, _) -> Some d
-            | ExternalIntake(d, _) -> Some d
-            | ExternalDisposal _ -> None
-
-        member this.NotesOpt =
-            match this with
-            | InternalTransfer(_, _, n) -> n
-            | ExternalIntake(_, n) -> Some n.Value
-            | ExternalDisposal(_, n) -> Some n.Value
-
-    /// Models the Physical Location Sync Option on Page 6C (Section 3, Page 6C.4).
-    type PhysicalLocationSync =
-        | KeepExistingLocation
-        | SyncToLocation of target: PhysicalLocationTarget
-
-    type ValidatedIntakeSerializedSpec =
-        { ItemTypeId: ItemTypeId
-          Barcode: Barcode
-          SerialNumber: string option }
-
-    type ValidatedQuantitativeTransferSpec =
-        { ItemTypeId: ItemTypeId
-          Quantity: PositiveQuantity }
-
-    type ValidatedCommitTransferCommand =
-        { Parties: TransferDirectionAndParties
-          TemplateId: TemplateId option
-          ExistingSerializedItemIds: SerializedItemId list
-          NewIntakeSerializedSpecs: ValidatedIntakeSerializedSpec list
-          QuantitativeLines: ValidatedQuantitativeTransferSpec list
-          LocationSync: PhysicalLocationSync }
-
-    // =========================================================================
-    // 4. Multi-Field Applicative Validation (`validation { ... }`)
-    // =========================================================================
-
-    let validateCreateItemType (req: CreateItemTypeRequestDto) : Result<ValidatedCreateItemTypeCommand, ApiError> =
+    // ── Applicative Validation ───────────────────────────────────────────────
+    let validateCreateItemType (req: CreateItemTypeRequest) : Result<ValidatedCreateItemType, ApiError> =
         validation {
-            let! name = SmartConstructors.createNonEmptyString "name" req.Name
-            and! existingCatOpt = SmartConstructors.createOptionalGuid "category_id" req.CategoryId
-            and! trackingType =
+            let! name = Parse.nonEmpty "name" req.Name
+            and! catGuid = Parse.optGuid "category_id" req.CategoryId
+            and! tracking =
                 match req.TrackingType |> Option.defaultValue 1 with
                 | 0 -> Ok TrackingType.Quantitative
                 | 1 -> Ok TrackingType.Serialized
-                | _ -> Error(ApiError.fieldError "tracking_type" ApiErrorCode.ValidationFailed)
+                | _ -> Error(ApiError.field "tracking_type" ApiErrorCode.ValidationFailed)
 
-            let categoryAssignment =
-                match existingCatOpt, SmartConstructors.createOptionalTrimmedString req.NewCategoryName with
-                | Some catGuid, _ -> ExistingCategory(CategoryId catGuid)
-                | None, Some newCatName ->
-                    match SmartConstructors.createNonEmptyString "new_category_name" (Some newCatName) with
-                    | Ok nes -> CreateNewCategory nes
-                    | Error _ -> Uncategorized
-                | None, None -> Uncategorized
-
-            let unitOfMeasure =
-                SmartConstructors.createOptionalTrimmedString req.UnitOfMeasure
-                |> Option.defaultValue "unit"
-
-            let description = SmartConstructors.createOptionalTrimmedString req.Description
+            let category =
+                match catGuid, Parse.nonEmpty "new_category_name" req.NewCategoryName with
+                | Some g, _ -> ExistingCategory(CategoryId g)
+                | None, Ok n -> NewCategory n
+                | None, Error _ -> Uncategorized
 
             return
-                { Name = name
-                  Category = categoryAssignment
-                  TrackingType = trackingType
-                  UnitOfMeasure = unitOfMeasure
-                  Description = description }
+                { Name = name; Category = category; TrackingType = tracking
+                  UnitOfMeasure = trimOpt req.UnitOfMeasure |> Option.defaultValue "unit"
+                  Description = trimOpt req.Description }
         }
-        |> Result.mapError ApiError.fromFieldErrors
+        |> Result.mapError ApiError.fromFields
 
-    let private validatePartiesAndNotes
-        (sourceRaw: string option)
-        (destRaw: string option)
-        (notesRaw: string option)
-        : Result<TransferDirectionAndParties, FieldValidationError list> =
+    let private validateParties srcRaw dstRaw notesRaw =
         validation {
-            let! sourceOpt = SmartConstructors.createOptionalHolderId "source_holder_id" sourceRaw
-            and! destOpt = SmartConstructors.createOptionalHolderId "dest_holder_id" destRaw
-            return sourceOpt, destOpt
+            let! src = Parse.optHolderId "source_holder_id" srcRaw
+            and! dst = Parse.optHolderId "dest_holder_id" dstRaw
+            return src, dst
         }
-        |> Result.bind (fun (sourceOpt, destOpt) ->
-            let trimmedNotesOpt = SmartConstructors.createOptionalTrimmedString notesRaw
+        |> Result.bind (fun (src, dst) ->
+            match src, dst with
+            | Some s, Some d when s = d -> Error [ ApiError.field "dest_holder_id" ApiErrorCode.SameSourceAndDestination ]
+            | Some s, Some d -> Ok(Internal(s, d, trimOpt notesRaw))
+            | None, Some d ->
+                Parse.nonEmpty "notes" notesRaw
+                |> Result.map (fun n -> ExternalIntake(d, n))
+                |> Result.mapError (fun _ -> [ ApiError.field "notes" ApiErrorCode.MissingNotesForExternalTransfer ])
+            | Some s, None ->
+                Parse.nonEmpty "notes" notesRaw
+                |> Result.map (fun n -> ExternalDisposal(s, n))
+                |> Result.mapError (fun _ -> [ ApiError.field "notes" ApiErrorCode.MissingNotesForExternalTransfer ])
+            | None, None -> Error [ ApiError.field "parties" ApiErrorCode.EmptyRequiredField ])
 
-            match sourceOpt, destOpt with
-            | Some src, Some dst ->
-                if src.Value = dst.Value then
-                    Error [ ApiError.fieldError "dest_holder_id" ApiErrorCode.SameSourceAndDestination ]
-                else
-                    Ok(InternalTransfer(src, dst, trimmedNotesOpt))
-            | None, Some dst ->
-                match SmartConstructors.createNonEmptyString "notes" notesRaw with
-                | Ok mandatoryNotes -> Ok(ExternalIntake(dst, mandatoryNotes))
-                | Error _ -> Error [ ApiError.fieldError "notes" ApiErrorCode.MissingNotesForExternalTransfer ]
-            | Some src, None ->
-                match SmartConstructors.createNonEmptyString "notes" notesRaw with
-                | Ok mandatoryNotes -> Ok(ExternalDisposal(src, mandatoryNotes))
-                | Error _ -> Error [ ApiError.fieldError "notes" ApiErrorCode.MissingNotesForExternalTransfer ]
-            | None, None ->
-                Error [ ApiError.fieldError "parties" ApiErrorCode.EmptyRequiredField ])
-
-    let private validateExistingSerializedIds
-        (rawIds: string list)
-        : Result<SerializedItemId list, FieldValidationError list> =
-        let parsedResults =
-            rawIds
-            |> List.mapi (fun idx raw ->
-                SmartConstructors.createSerializedItemId $"serialized_item_ids[{idx}]" raw)
-
-        let errors =
-            parsedResults
-            |> List.choose (function
-                | Error e -> Some e
-                | Ok _ -> None)
-
-        if not (List.isEmpty errors) then
-            Error errors
+    let private validateDistinctList (field: string) (keyOf: 'a -> 'k) (results: Result<'a, FieldError list> list) =
+        let errs = results |> List.collect (function Error e -> e | Ok _ -> [])
+        if not errs.IsEmpty then Error errs
         else
-            let validIds =
-                parsedResults
-                |> List.choose (function
-                    | Ok v -> Some v
-                    | Error _ -> None)
+            let items = results |> List.choose (function Ok v -> Some v | Error _ -> None)
+            if (items |> List.map keyOf |> List.distinct |> List.length) <> items.Length then
+                Error [ ApiError.field field ApiErrorCode.DuplicateItemInTransfer ]
+            else Ok items
 
-            let distinctCount = validIds |> List.map (fun x -> x.Value) |> List.distinct |> List.length
+    let private resolveLocationSync (parties: TransferParties) (req: CommitTransferRequest) (explicitHolder: HolderId option) =
+        if not (req.UpdatePhysicalLocation |> Option.defaultValue true) then KeepLocation
+        else
+            let holder = explicitHolder |> Option.orElse parties.DestOpt
+            match holder, Parse.nonEmpty "to_location_custom_text" req.ToLocationCustomText with
+            | Some h, Ok t -> SyncTo(AtHolderAndText(h, t))
+            | Some h, Error _ -> SyncTo(AtHolder h)
+            | None, Ok t -> SyncTo(CustomText t)
+            | None, Error _ -> KeepLocation
 
-            if distinctCount <> validIds.Length then
-                Error [ ApiError.fieldError "serialized_item_ids" ApiErrorCode.DuplicateItemInTransfer ]
-            else
-                Ok validIds
+    let validateCommitTransfer (req: CommitTransferRequest) : Result<ValidatedTransfer, ApiError> =
+        let serResults =
+            (req.SerializedItemIds |> Option.defaultValue [])
+            |> List.mapi (fun i id -> Parse.serializedItemId $"serialized_item_ids[{i}]" id |> Result.mapError List.singleton)
 
-    let private validateIntakeSpecs
-        (rawItems: TransferSerializedIntakeItemDto list)
-        : Result<ValidatedIntakeSerializedSpec list, FieldValidationError list> =
-        let parsedResults =
-            rawItems
-            |> List.mapi (fun idx item ->
+        let intakeResults =
+            (req.NewIntakeSerializedItems |> Option.defaultValue [])
+            |> List.mapi (fun i x ->
                 validation {
-                    let! itemTypeId =
-                        SmartConstructors.createItemTypeId
-                            $"new_intake_serialized_items[{idx}].item_type_id"
-                            (Option.defaultValue "" item.ItemTypeId)
-                    and! barcode =
-                        SmartConstructors.createBarcode
-                            $"new_intake_serialized_items[{idx}].barcode"
-                            item.Barcode
-
-                    let serialOpt = SmartConstructors.createOptionalTrimmedString item.SerialNumber
-
-                    return
-                        { ItemTypeId = itemTypeId
-                          Barcode = barcode
-                          SerialNumber = serialOpt }
+                    let! tid = Parse.itemTypeId $"new_intake_serialized_items[{i}].item_type_id" (Option.defaultValue "" x.ItemTypeId)
+                    and! bc = Parse.barcode $"new_intake_serialized_items[{i}].barcode" x.Barcode
+                    return { ItemTypeId = tid; Barcode = bc; SerialNumber = trimOpt x.SerialNumber }
                 })
 
-        let errors =
-            parsedResults
-            |> List.collect (function
-                | Error errs -> errs
-                | Ok _ -> [])
-
-        if not (List.isEmpty errors) then
-            Error errors
-        else
-            let specs =
-                parsedResults
-                |> List.choose (function
-                    | Ok s -> Some s
-                    | Error _ -> None)
-
-            let distinctBarcodes =
-                specs
-                |> List.map (fun s -> s.Barcode.Value.ToLowerInvariant())
-                |> List.distinct
-                |> List.length
-
-            if distinctBarcodes <> specs.Length then
-                Error [ ApiError.fieldError "new_intake_serialized_items" ApiErrorCode.DuplicateItemInTransfer ]
-            else
-                Ok specs
-
-    let private validateQuantitativeSpecs
-        (rawLines: TransferQuantitativeLineDto list)
-        : Result<ValidatedQuantitativeTransferSpec list, FieldValidationError list> =
-        let parsedResults =
-            rawLines
-            |> List.mapi (fun idx line ->
+        let quantResults =
+            (req.QuantitativeLines |> Option.defaultValue [])
+            |> List.mapi (fun i x ->
                 validation {
-                    let! itemTypeId =
-                        SmartConstructors.createItemTypeId
-                            $"quantitative_lines[{idx}].item_type_id"
-                            (Option.defaultValue "" line.ItemTypeId)
-                    and! qty =
-                        SmartConstructors.createPositiveQuantity
-                            $"quantitative_lines[{idx}].quantity"
-                            line.Quantity
-
-                    return
-                        { ItemTypeId = itemTypeId
-                          Quantity = qty }
+                    let! tid = Parse.itemTypeId $"quantitative_lines[{i}].item_type_id" (Option.defaultValue "" x.ItemTypeId)
+                    and! qty = Parse.positiveQty $"quantitative_lines[{i}].quantity" x.Quantity
+                    return { ItemTypeId = tid; Quantity = qty }
                 })
 
-        let errors =
-            parsedResults
-            |> List.collect (function
-                | Error errs -> errs
-                | Ok _ -> [])
-
-        if not (List.isEmpty errors) then
-            Error errors
-        else
-            let specs =
-                parsedResults
-                |> List.choose (function
-                    | Ok s -> Some s
-                    | Error _ -> None)
-
-            let distinctItemTypes =
-                specs
-                |> List.map (fun s -> s.ItemTypeId.Value)
-                |> List.distinct
-                |> List.length
-
-            if distinctItemTypes <> specs.Length then
-                Error [ ApiError.fieldError "quantitative_lines" ApiErrorCode.DuplicateItemInTransfer ]
-            else
-                Ok specs
-
-    let validateCommitTransfer (req: CommitTransferRequestDto) : Result<ValidatedCommitTransferCommand, ApiError> =
-        let rawSerializedIds = Option.defaultValue [] req.SerializedItemIds
-        let rawIntakeItems = Option.defaultValue [] req.NewIntakeSerializedItems
-        let rawQuantLines = Option.defaultValue [] req.QuantitativeLines
-
         validation {
-            let! parties = validatePartiesAndNotes req.SourceHolderId req.DestHolderId req.Notes
-            and! templateIdOpt =
-                SmartConstructors.createOptionalTemplateId "transfer_template_id" req.TransferTemplateId
-                |> Result.mapError List.singleton
-            and! existingSerializedIds = validateExistingSerializedIds rawSerializedIds
-            and! intakeSpecs = validateIntakeSpecs rawIntakeItems
-            and! quantSpecs = validateQuantitativeSpecs rawQuantLines
-            and! explicitLocHolderOpt =
-                SmartConstructors.createOptionalHolderId "to_location_holder_id" req.ToLocationHolderId
-                |> Result.mapError List.singleton
-
-            return (parties, templateIdOpt, existingSerializedIds, intakeSpecs, quantSpecs, explicitLocHolderOpt)
+            let! parties = validateParties req.SourceHolderId req.DestHolderId req.Notes
+            and! tplId = Parse.optTemplateId "transfer_template_id" req.TransferTemplateId |> Result.mapError List.singleton
+            and! existingSer = validateDistinctList "serialized_item_ids" id serResults
+            and! intakeSer = validateDistinctList "new_intake_serialized_items" (fun x -> x.Barcode.Value.ToLowerInvariant()) intakeResults
+            and! quantLines = validateDistinctList "quantitative_lines" _.ItemTypeId quantResults
+            and! locHolder = Parse.optHolderId "to_location_holder_id" req.ToLocationHolderId |> Result.mapError List.singleton
+            return parties, tplId, existingSer, intakeSer, quantLines, locHolder
         }
-        |> Result.bind (fun (parties, templateIdOpt, existingSerializedIds, intakeSpecs, quantSpecs, explicitLocHolderOpt) ->
-            let totalLines =
-                existingSerializedIds.Length + intakeSpecs.Length + quantSpecs.Length
-
-            if totalLines = 0 then
-                Error [ ApiError.fieldError "lines" ApiErrorCode.EmptyTransferLines ]
+        |> Result.bind (fun (parties, tplId, existingSer, intakeSer, quantLines, locHolder) ->
+            if existingSer.Length + intakeSer.Length + quantLines.Length = 0 then
+                Error [ ApiError.field "lines" ApiErrorCode.EmptyTransferLines ]
             else
-                // Only ExternalIntake can create brand-new serialized items; Internal/Disposal must reference existing IDs
                 match parties with
-                | InternalTransfer _
-                | ExternalDisposal _ when not (List.isEmpty intakeSpecs) ->
-                    Error [ ApiError.fieldError "new_intake_serialized_items" ApiErrorCode.ValidationFailed ]
-                | ExternalIntake _ when not (List.isEmpty existingSerializedIds) ->
-                    Error [ ApiError.fieldError "serialized_item_ids" ApiErrorCode.ValidationFailed ]
+                | ExternalIntake _ when not existingSer.IsEmpty -> Error [ ApiError.field "serialized_item_ids" ApiErrorCode.ValidationFailed ]
+                | (Internal _ | ExternalDisposal _) when not intakeSer.IsEmpty -> Error [ ApiError.field "new_intake_serialized_items" ApiErrorCode.ValidationFailed ]
                 | _ ->
-                    // Resolve PhysicalLocationSync policy (default is update_physical_location = true)
-                    let updateLoc = Option.defaultValue true req.UpdatePhysicalLocation
-                    let customTextOpt = SmartConstructors.createOptionalTrimmedString req.ToLocationCustomText
-
-                    let locationSync =
-                        if not updateLoc then
-                            KeepExistingLocation
-                        else
-                            let effectiveHolderOpt =
-                                match explicitLocHolderOpt with
-                                | Some h -> Some h
-                                | None -> parties.DestHolderIdOpt
-
-                            match effectiveHolderOpt, customTextOpt with
-                            | Some h, Some t ->
-                                match SmartConstructors.createNonEmptyString "to_location_custom_text" (Some t) with
-                                | Ok nes -> SyncToLocation(AtHolderWithText(h, nes))
-                                | Error _ -> SyncToLocation(AtHolderOnly h)
-                            | Some h, None -> SyncToLocation(AtHolderOnly h)
-                            | None, Some t ->
-                                match SmartConstructors.createNonEmptyString "to_location_custom_text" (Some t) with
-                                | Ok nes -> SyncToLocation(CustomTextOnly nes)
-                                | Error _ -> KeepExistingLocation
-                            | None, None -> KeepExistingLocation
-
-                    Ok
-                        { Parties = parties
-                          TemplateId = templateIdOpt
-                          ExistingSerializedItemIds = existingSerializedIds
-                          NewIntakeSerializedSpecs = intakeSpecs
-                          QuantitativeLines = quantSpecs
-                          LocationSync = locationSync })
-        |> Result.mapError ApiError.fromFieldErrors
+                    Ok { Parties = parties; TemplateId = tplId; ExistingSerialized = existingSer
+                         IntakeSerialized = intakeSer; QuantLines = quantLines
+                         LocationSync = resolveLocationSync parties req locHolder })
+        |> Result.mapError ApiError.fromFields

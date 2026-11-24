@@ -5,64 +5,50 @@ open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
 open Oxpecker
-open Rashmatz.Shared.DomainTypes
 
-/// Oxpecker HTTP helpers bridging Railway Oriented Programming (`Task<Result<'T, ApiError>>`)
-/// to ASP.NET Core EndpointRouting responses, including support for the HTTP `QUERY` verb.
+/// Oxpecker HTTP helpers connecting Task<Result<'T, ApiError>> to ASP.NET Core responses
+/// using global SnakeCaseLower JSON serialization.
 module Http =
 
-    let jsonOptions =
-        let opts = JsonSerializerOptions(PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower)
-        opts
-
-    let writeResult (ctx: HttpContext) (outcome: Result<'T, ApiError>) : Task =
-        task {
-            match outcome with
-            | Ok payload ->
-                ctx.Response.StatusCode <- 200
-                do! ctx.WriteJson payload
-            | Error apiErr ->
-                let errDto = ApiError.toDto apiErr
-                ctx.Response.StatusCode <- errDto.Status
-                do! ctx.WriteJson errDto
-        }
+    let snakeCaseJsonOptions =
+        JsonSerializerOptions(
+            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+            PropertyNameCaseInsensitive = true
+        )
 
     let runWorkflow (workflow: HttpContext -> Task<Result<'T, ApiError>>) : EndpointHandler =
-        fun (ctx: HttpContext) ->
+        fun ctx ->
             task {
-                let! outcome = workflow ctx
-                do! writeResult ctx outcome
+                match! workflow ctx with
+                | Ok payload ->
+                    ctx.Response.StatusCode <- 200
+                    do! ctx.WriteJson payload
+                | Error err ->
+                    let dto = ApiError.toDto err
+                    ctx.Response.StatusCode <- dto.Status
+                    do! ctx.WriteJson dto
             }
 
-    let bindJsonSafe<'T> (ctx: HttpContext) : Task<Result<'T, ApiError>> =
+    let bindJson<'T> (ctx: HttpContext) : Task<Result<'T, ApiError>> =
         task {
             try
                 let! model = ctx.BindJson<'T>()
-
-                if isNull (box model) then
-                    return Error(ApiError.single ApiErrorCode.ValidationFailed)
-                else
-                    return Ok model
+                if isNull (box model) then return Error(ApiError.single ApiErrorCode.ValidationFailed)
+                else return Ok model
             with _ ->
                 return Error(ApiError.single ApiErrorCode.ValidationFailed)
         }
 
-    let tryGetQueryParam (key: string) (ctx: HttpContext) : string option =
-        match ctx.TryGetQueryValue(key) with
-        | Some v when not (String.IsNullOrWhiteSpace(v)) -> Some(v.Trim())
+    let queryParam (key: string) (ctx: HttpContext) =
+        ctx.TryGetQueryValue key |> Option.bind (fun s -> trimNullable s)
+
+    let header (key: string) (ctx: HttpContext) =
+        match ctx.Request.Headers.TryGetValue key with
+        | true, v when v.Count > 0 -> trimNullable v[0]
         | _ -> None
 
-    let tryGetHeader (key: string) (ctx: HttpContext) : string option =
-        match ctx.Request.Headers.TryGetValue(key) with
-        | true, v when v.Count > 0 -> ofNullableTrimmed v[0]
-        | _ -> None
-
-    /// Registers an HTTP `QUERY` endpoint using Oxpecker's standard `route` primitive,
-    /// verifying that the incoming request verb is `QUERY`.
-    let QUERY_ROUTE (path: string) (handler: EndpointHandler) : Endpoint =
-        route path (fun (ctx: HttpContext) ->
-            if String.Equals(ctx.Request.Method, "QUERY", StringComparison.OrdinalIgnoreCase) then
-                handler ctx
-            else
-                ctx.Response.StatusCode <- StatusCodes.Status405MethodNotAllowed
-                Task.CompletedTask)
+    /// Registers an HTTP `QUERY` endpoint on Oxpecker's standard `route`.
+    let queryRoute (path: string) (handler: EndpointHandler) : Endpoint =
+        route path (fun ctx ->
+            if String.Equals(ctx.Request.Method, "QUERY", StringComparison.OrdinalIgnoreCase) then handler ctx
+            else ctx.Response.StatusCode <- StatusCodes.Status405MethodNotAllowed; Task.CompletedTask)

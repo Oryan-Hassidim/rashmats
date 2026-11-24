@@ -1,0 +1,105 @@
+### Rashmatz Server — Interactive HTTP Test File
+### Works in Visual Studio, VS Code (REST Client), and JetBrains Rider.
+### Start the server first: dotnet run --project src/Rashmatz.Server.fsproj
+
+@baseUrl = http://localhost:5000
+@adminEmail = admin@rashmatz.org
+@memberEmail = soldier@rashmatz.org
+
+# Deterministic Dev Seed IDs (created automatically in Development mode)
+@warehouseId = 44444444-4444-4444-8444-444444444443
+@memberId = 44444444-4444-4444-8444-444444444442
+@templateId = 99999999-9999-4999-8999-999999999991
+@radio1Id = 77777777-7777-4777-8777-777777777771
+@batteryTypeId = 66666666-6666-4666-8666-666666666662
+
+### 1. OpenAPI Specification (used by Swagger / Scalar / Schemathesis)
+GET {{baseUrl}}/openapi/v1.json
+
+### 2. Ensure Dev Database Seed (idempotent)
+POST {{baseUrl}}/dev/seed
+
+### 3. Page 1 — Login Bootstrap (unauthenticated)
+GET {{baseUrl}}/pages/login?return_to=/my-custody
+
+### 4. Dev Login as Soldier (issues 30-day HttpOnly session cookie)
+POST {{baseUrl}}/auth/dev-login
+Content-Type: application/json
+
+{
+  "email": "{{memberEmail}}",
+  "full_name": "Field Operator"
+}
+
+### 5. Page 2 — My Custody (using X-Dev-User-Email header, no UI needed)
+GET {{baseUrl}}/pages/my-custody
+X-Dev-User-Email: {{memberEmail}}
+
+### 6. Page 2 — My Custody with X-Holders-Hash (replace hash from step 5 to get holders_directory: null)
+GET {{baseUrl}}/pages/my-custody
+X-Dev-User-Email: {{memberEmail}}
+X-Holders-Hash: PASTE_HASH_FROM_STEP_5
+
+### 7. Page 5 — Quick Relocation Bootstrap (last 20 relocated items)
+GET {{baseUrl}}/pages/items-relocate
+X-Dev-User-Email: {{adminEmail}}
+
+### 8. Page 5 — Search Serialized Items using HTTP QUERY method
+QUERY {{baseUrl}}/serialized-items/lookup
+X-Dev-User-Email: {{adminEmail}}
+Content-Type: application/json
+
+{
+  "q": "PRC"
+}
+
+### 9. Page 5 — Relocate Serialized Item (Physical Location only, no custody change)
+POST {{baseUrl}}/serialized-items/{{radio1Id}}/relocate
+X-Dev-User-Email: {{adminEmail}}
+Content-Type: application/json
+
+{
+  "to_location_holder_id": "{{warehouseId}}",
+  "to_location_custom_text": "Shelf B2, Bin 4",
+  "notes": "Moved after battery check"
+}
+
+### 10. Page 6A — Transfer Step 1: Choose Template
+GET {{baseUrl}}/pages/transfers-new-template
+X-Dev-User-Email: {{adminEmail}}
+
+### 11. Page 6B — Transfer Step 2: Select Parties (pre-populated from template)
+GET {{baseUrl}}/pages/transfers-new-parties?template_id={{templateId}}
+X-Dev-User-Email: {{adminEmail}}
+
+### 12. Page 6C — Transfer Step 3: Load Source Inventory, Dest Balances & Template Lines
+GET {{baseUrl}}/pages/transfers-new-items?source_id={{warehouseId}}&dest_id={{memberId}}&template_id={{templateId}}
+X-Dev-User-Email: {{adminEmail}}
+
+### 13. Page 6C — Check Unassigned Barcode (HTTP QUERY)
+QUERY {{baseUrl}}/serialized-items/check-unassigned
+X-Dev-User-Email: {{adminEmail}}
+Content-Type: application/json
+
+{
+  "barcode": "BC-NEW-999"
+}
+
+### 14. Page 6C — Commit Custody Transfer (with Idempotency-Key & Physical Location Sync)
+POST {{baseUrl}}/transfers
+X-Dev-User-Email: {{adminEmail}}
+Idempotency-Key: 10000000-0000-4000-8000-000000000001
+Content-Type: application/json
+
+{
+  "source_holder_id": "{{warehouseId}}",
+  "dest_holder_id": "{{memberId}}",
+  "transfer_template_id": "{{templateId}}",
+  "serialized_item_ids": ["{{radio1Id}}"],
+  "quantitative_lines": [
+    { "item_type_id": "{{batteryTypeId}}", "quantity": 4 }
+  ],
+  "update_physical_location": true,
+  "to_location_custom_text": "Field Vest Pouch 2",
+  "notes": "Issued standard comms kit"
+}

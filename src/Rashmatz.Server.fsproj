@@ -3,22 +3,27 @@
   <PropertyGroup>
     <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
-    <PublishReadyToRun>true</PublishReadyToRun>
     <ServerGarbageCollection>true</ServerGarbageCollection>
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- Shared Core & Infrastructure (Compiled First) -->
+    <!-- Embedded SQL files (schema + complex queries co-located in slices) -->
+    <EmbeddedResource Include="shared/schema.sql" LogicalName="shared/schema.sql" />
+    <EmbeddedResource Include="pages/relocate/recent_relocations.sql" LogicalName="pages/relocate/recent_relocations.sql" />
+    <EmbeddedResource Include="pages/transfers-new-items/dest_balances.sql" LogicalName="pages/transfers-new-items/dest_balances.sql" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared Core & Infrastructure -->
     <Compile Include="shared/Errors.fs" />
-    <Compile Include="shared/DomainTypes.fs" />
-    <Compile Include="shared/Schema.Generated.fs" />
+    <Compile Include="shared/Domain.fs" />
+    <Compile Include="shared/Sql.fs" />
     <Compile Include="shared/Database.fs" />
     <Compile Include="shared/Auth.fs" />
     <Compile Include="shared/Navbar.fs" />
     <Compile Include="shared/Http.fs" />
 
-    <!-- Vertical Slices (Co-located inside src/pages/<slice>/) -->
+    <!-- Vertical Slices (co-located with future TS/HTML client files) -->
     <Compile Include="pages/login/login.server.fs" />
     <Compile Include="pages/my-custody/my-custody.server.fs" />
     <Compile Include="pages/relocate/relocate.server.fs" />
@@ -28,19 +33,15 @@
     <Compile Include="pages/transfers-new-items/TransfersNewItems.Db.fs" />
     <Compile Include="pages/transfers-new-items/TransfersNewItems.Endpoints.fs" />
 
-    <!-- Main Entrypoint -->
     <Compile Include="Program.fs" />
   </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Oxpecker" Version="2.1.1" />
-    <PackageReference Include="Oxpecker.OpenApi" Version="2.1.1" />
-    <!-- Overrides transitive Microsoft.OpenApi 2.0.0 to patched 2.7.5 (resolves GHSA-v5pm-xwqc-g5wc) -->
+    <PackageReference Include="Oxpecker.OpenApi" Version="2.1.2" />
     <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
-    <!-- In FsToolkit.ErrorHandling 5.x, TaskResult is merged into the core library -->
     <PackageReference Include="FsToolkit.ErrorHandling" Version="5.2.0" />
     <PackageReference Include="Donald" Version="10.1.0" />
-    <!-- Microsoft.Data.Sqlite 11.0.0 uses SQLitePCLRaw 3.0.5 (resolves GHSA-2m69-gcr7-jv3q) -->
     <PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
   </ItemGroup>
 

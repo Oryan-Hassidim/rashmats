@@ -1,370 +1,274 @@
 namespace Rashmatz.Pages.Login
 
 open System
-open System.Text.Json.Serialization
-open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
+open Microsoft.Data.Sqlite
 open Oxpecker
+open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
-open Rashmatz.Shared.DomainTypes
 
-/// Vertical Slice for Page 1: Login & Smart Routing (`/login`)
-/// Co-located inside `src/pages/login/login.server.fs` alongside client `index.html`, `login.page.ts`, `login.vm.ts`.
+/// Vertical Slice — Page 1: Login & Smart Routing (`/login`)
 module Server =
 
-    type LoginBootstrapPageDto =
-        { [<JsonPropertyName("is_authenticated")>]
-          IsAuthenticated: bool
-          [<JsonPropertyName("redirect_to")>]
+    type LoginBootstrapDto =
+        { IsAuthenticated: bool
           RedirectTo: string option
-          [<JsonPropertyName("return_to")>]
           ReturnTo: string option }
 
     [<CLIMutable>]
-    type GoogleLoginRequestDto =
-        { [<JsonPropertyName("id_token")>]
-          IdToken: string option
-          [<JsonPropertyName("return_to")>]
+    type GoogleLoginRequest =
+        { IdToken: string option
           ReturnTo: string option }
 
     [<CLIMutable>]
-    type DevLoginRequestDto =
-        { [<JsonPropertyName("email")>]
-          Email: string option
-          [<JsonPropertyName("full_name")>]
+    type DevLoginRequest =
+        { Email: string option
           FullName: string option
-          [<JsonPropertyName("is_super_admin")>]
           IsSuperAdmin: bool option
-          [<JsonPropertyName("return_to")>]
           ReturnTo: string option }
 
-    type LoginSuccessResponseDto =
-        { [<JsonPropertyName("user_id")>]
-          UserId: string
-          [<JsonPropertyName("holder_id")>]
+    type LoginResponse =
+        { UserId: string
           HolderId: string
-          [<JsonPropertyName("active_organization_id")>]
           ActiveOrganizationId: string
-          [<JsonPropertyName("role")>]
           Role: int
-          [<JsonPropertyName("redirect_to")>]
           RedirectTo: string }
 
-    /// Ensures `return_to` is strictly a relative internal path starting with `/` (preventing Open Redirects).
-    let validateReturnToPath (rawOpt: string option) : Result<string option, ApiError> =
-        match rawOpt with
+    type LogoutResponse = { LoggedOut: bool }
+
+    let validateReturnTo (rawOpt: string option) =
+        match trimOpt rawOpt with
         | None -> Ok None
-        | Some raw when String.IsNullOrWhiteSpace(raw) -> Ok None
-        | Some raw ->
-            let trimmed = raw.Trim()
+        | Some s when
+            s.StartsWith("/")
+            && not (s.StartsWith("//"))
+            && not (s.StartsWith("/\\"))
+            && not (s.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
+            ->
+            Ok(Some s)
+        | _ -> Error(ApiError.single ApiErrorCode.InvalidReturnToPath)
 
-            if
-                trimmed.StartsWith("/", StringComparison.Ordinal)
-                && not (trimmed.StartsWith("//", StringComparison.Ordinal))
-                && not (trimmed.StartsWith("/\\", StringComparison.Ordinal))
-                && not (trimmed.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
-            then
-                Ok(Some trimmed)
-            else
-                Error(ApiError.single ApiErrorCode.InvalidReturnToPath)
+    let smartRedirect (db: IDbContext) (org: OrgMembership) (returnTo: string option) =
+        match returnTo with
+        | Some path -> path
+        | None ->
+            use conn = db.OpenRead()
 
-    /// Computes the smart post-login destination per Page 1 Specification:
-    /// 1. If a valid `return_to` parameter was provided, route there.
-    /// 2. For a Member: `/audit/scan` if an active audit session exists in the organization, else `/my-custody`.
-    /// 3. For an Admin: `/admin/dashboard`.
-    let computeSmartRedirectAsync
-        (db: IDbContext)
-        (activeOrg: UserOrgMembership)
-        (validatedReturnTo: string option)
-        : Task<string> =
-        task {
-            match validatedReturnTo with
-            | Some returnPath -> return returnPath
+            match org.Role, Navbar.findActiveAudit conn org.OrgId with
+            | SystemRole.Member, Some _ -> "/audit/scan"
+            | SystemRole.Member, None -> "/my-custody"
+            | SystemRole.Admin, _ -> "/admin/dashboard"
+            | _ -> "/my-custody"
+
+    let private checkWhitelist (conn: SqliteConnection) tx (email: string) =
+        let rows =
+            conn
+            |> Db.newCommand
+                "SELECT o.is_active AS oa, ch.is_active AS ha, ch.role FROM custody_holders ch INNER JOIN organizations o ON o.id=ch.organization_id WHERE LOWER(ch.invited_email)=@email AND ch.holder_type=1"
+            |> Db.setTransaction tx
+            |> Db.setParams [ "email", SqlType.String email ]
+            |> Db.query (fun rd -> rd.ReadInt32 "oa" = 1, rd.ReadInt32 "ha" = 1, rd.ReadInt32 "role")
+
+        if rows
+           |> List.exists (fun (oa, ha, r) -> oa && ha && r > 0) then
+            Ok()
+        elif rows |> List.exists (fun (oa, _, _) -> not oa) then
+            Error(ApiError.single ApiErrorCode.OrganizationInactive)
+        else
+            Error(ApiError.single ApiErrorCode.EmailNotWhitelisted)
+
+    let private upsertUser (conn: SqliteConnection) tx (user: GoogleUser) (forceSuper: bool option) (now: string) =
+        let existing =
+            conn
+            |> Db.newCommand "SELECT id, is_super_admin FROM users WHERE LOWER(email)=@em OR google_id=@gid"
+            |> Db.setTransaction tx
+            |> Db.setParams [ "em", SqlType.String user.Email
+                              "gid", SqlType.String user.Subject ]
+            |> Db.querySingle (fun rd -> rd.ReadString "id", rd.ReadInt32 "is_super_admin" = 1)
+
+        let uid =
+            match existing with
+            | Some (id, wasSuper) ->
+                let sa =
+                    if (forceSuper |> Option.defaultValue wasSuper) then
+                        1
+                    else
+                        0
+
+                conn
+                |> Db.newCommand
+                    "UPDATE users SET google_id=@gid, email=@em, full_name=@fn, avatar_url=@av, is_super_admin=@sa, updated_at=@now WHERE id=@id"
+                |> Db.setTransaction tx
+                |> Db.setParams [ "gid", SqlType.String user.Subject
+                                  "em", SqlType.String user.Email
+                                  "fn", SqlType.String user.FullName
+                                  "av", Sql.strOpt user.AvatarUrl
+                                  "sa", SqlType.Int32 sa
+                                  "now", SqlType.String now
+                                  "id", SqlType.String id ]
+                |> Db.exec
+
+                id
             | None ->
-                use conn = db.OpenReadConnection()
-                let activeAuditOpt = Navbar.findActiveAuditSession conn activeOrg.OrganizationId
+                let id = Guid.NewGuid().ToString("D")
+                let sa = if forceSuper = Some true then 1 else 0
 
-                match activeOrg.Role, activeAuditOpt with
-                | SystemRole.Member, Some _ -> return "/audit/scan"
-                | SystemRole.Member, None -> return "/my-custody"
-                | SystemRole.Admin, _ -> return "/admin/dashboard"
-                | _ -> return "/my-custody"
-        }
+                conn
+                |> Db.newCommand
+                    "INSERT INTO users (id, google_id, email, full_name, avatar_url, is_super_admin, created_at, updated_at) VALUES (@id, @gid, @em, @fn, @av, @sa, @now, @now)"
+                |> Db.setTransaction tx
+                |> Db.setParams [ "id", SqlType.String id
+                                  "gid", SqlType.String user.Subject
+                                  "em", SqlType.String user.Email
+                                  "fn", SqlType.String user.FullName
+                                  "av", Sql.strOpt user.AvatarUrl
+                                  "sa", SqlType.Int32 sa
+                                  "now", SqlType.String now ]
+                |> Db.exec
 
-    /// Core Railway Oriented Programming workflow for authenticating a verified identity
-    /// (shared by both Google OAuth login and headless Developer Mode login).
-    let completeIdentityLoginAsync
-        (db: IDbContext)
-        (ctx: HttpContext)
-        (payload: GoogleUserPayload)
-        (forceSuperAdminOpt: bool option)
-        (returnToRaw: string option)
-        : Task<Result<LoginSuccessResponseDto, ApiError>> =
+                id
+
+        conn
+        |> Db.newCommand
+            "UPDATE custody_holders SET user_id=@uid, updated_at=@now WHERE LOWER(invited_email)=@em AND user_id IS NULL"
+        |> Db.setTransaction tx
+        |> Db.setParams [ "uid", SqlType.String uid
+                          "now", SqlType.String now
+                          "em", SqlType.String user.Email ]
+        |> Db.exec
+
+        UserId(Guid.Parse uid)
+
+    let private completeLogin (db: IDbContext) ctx (user: GoogleUser) forceSuper returnToRaw =
         taskResult {
-            let! validReturnTo = validateReturnToPath returnToRaw
-            let normalizedEmail = payload.Email.Trim().ToLowerInvariant()
+            let! validReturnTo = validateReturnTo returnToRaw
+            let normalized = { user with Email = user.Email.Trim().ToLowerInvariant() }
 
-            // Verify whitelist and upsert user + session inside the serialized write transaction
-            let! (userId, activeMembership) =
-                db.ExecuteWriteTransactionAsync(fun conn tx ->
+            let! (userId, activeOrg) =
+                db.WriteTxAsync (fun (conn: SqliteConnection) (tx: SqliteTransaction) ->
                     task {
-                        let whitelistedOrgStates =
-                            conn
-                            |> Db.newCommand
-                                """
-                                SELECT o.is_active AS org_active, ch.is_active AS holder_active, ch.role
-                                FROM custody_holders ch
-                                INNER JOIN organizations o ON o.id = ch.organization_id
-                                WHERE LOWER(ch.invited_email) = @email
-                                  AND ch.holder_type = 1
-                                """
-                            |> Db.setTransaction tx
-                            |> Db.setParams [ "email", SqlType.String normalizedEmail ]
-                            |> Db.query (fun rd ->
-                                rd.ReadInt32 "org_active" = 1,
-                                rd.ReadInt32 "holder_active" = 1,
-                                rd.ReadInt32 "role")
+                        match checkWhitelist conn tx normalized.Email with
+                        | Error e -> return Error e
+                        | Ok () ->
+                            let now = DateTimeOffset.UtcNow.ToString("O")
+                            let uid = upsertUser conn tx normalized forceSuper now
 
-                        let hasActiveMembership =
-                            whitelistedOrgStates
-                            |> List.exists (fun (orgActive, holderActive, role) ->
-                                orgActive && holderActive && role > 0)
-
-                        let hasOnlyInactiveOrg =
-                            not hasActiveMembership
-                            && (whitelistedOrgStates |> List.exists (fun (orgActive, _, _) -> not orgActive))
-
-                        if hasOnlyInactiveOrg then
-                            return Error(ApiError.single ApiErrorCode.OrganizationInactive)
-                        elif not hasActiveMembership then
-                            return Error(ApiError.single ApiErrorCode.EmailNotWhitelisted)
-                        else
-                            let nowIso = DateTimeOffset.UtcNow.ToString("O")
-
-                            let existingUserOpt =
-                                conn
-                                |> Db.newCommand
-                                    "SELECT id, is_super_admin FROM users WHERE LOWER(email) = @email OR google_id = @gid"
-                                |> Db.setTransaction tx
-                                |> Db.setParams
-                                    [ "email", SqlType.String normalizedEmail
-                                      "gid", SqlType.String payload.GoogleSubject ]
-                                |> Db.querySingle (fun rd ->
-                                    rd.ReadString "id", rd.ReadInt32 "is_super_admin" = 1)
-
-                            let userIdStr =
-                                match existingUserOpt with
-                                | Some(existingId, existingSuper) ->
-                                    let superFlag =
-                                        match forceSuperAdminOpt with
-                                        | Some b -> if b then 1 else 0
-                                        | None -> if existingSuper then 1 else 0
-
-                                    conn
-                                    |> Db.newCommand
-                                        """
-                                        UPDATE users
-                                        SET google_id = @gid,
-                                            email = @email,
-                                            full_name = @full_name,
-                                            avatar_url = @avatar_url,
-                                            is_super_admin = @super,
-                                            updated_at = @now
-                                        WHERE id = @id
-                                        """
-                                    |> Db.setTransaction tx
-                                    |> Db.setParams
-                                        [ "gid", SqlType.String payload.GoogleSubject
-                                          "email", SqlType.String normalizedEmail
-                                          "full_name", SqlType.String payload.FullName
-                                          "avatar_url",
-                                          (match payload.AvatarUrl with
-                                           | Some a -> SqlType.String a
-                                           | None -> SqlType.Null)
-                                          "super", SqlType.Int32 superFlag
-                                          "now", SqlType.String nowIso
-                                          "id", SqlType.String existingId ]
-                                    |> Db.exec
-
-                                    existingId
-                                | None ->
-                                    let newId = Guid.NewGuid().ToString("D")
-                                    let superFlag =
-                                        match forceSuperAdminOpt with
-                                        | Some true -> 1
-                                        | _ -> 0
-
-                                    conn
-                                    |> Db.newCommand
-                                        """
-                                        INSERT INTO users (id, google_id, email, full_name, avatar_url, is_super_admin, created_at, updated_at)
-                                        VALUES (@id, @gid, @email, @full_name, @avatar_url, @super, @now, @now)
-                                        """
-                                    |> Db.setTransaction tx
-                                    |> Db.setParams
-                                        [ "id", SqlType.String newId
-                                          "gid", SqlType.String payload.GoogleSubject
-                                          "email", SqlType.String normalizedEmail
-                                          "full_name", SqlType.String payload.FullName
-                                          "avatar_url",
-                                          (match payload.AvatarUrl with
-                                           | Some a -> SqlType.String a
-                                           | None -> SqlType.Null)
-                                          "super", SqlType.Int32 superFlag
-                                          "now", SqlType.String nowIso ]
-                                    |> Db.exec
-
-                                    newId
-
-                            conn
-                            |> Db.newCommand
-                                """
-                                UPDATE custody_holders
-                                SET user_id = @user_id, updated_at = @now
-                                WHERE LOWER(invited_email) = @email
-                                  AND user_id IS NULL
-                                """
-                            |> Db.setTransaction tx
-                            |> Db.setParams
-                                [ "user_id", SqlType.String userIdStr
-                                  "now", SqlType.String nowIso
-                                  "email", SqlType.String normalizedEmail ]
-                            |> Db.exec
-
-                            let userId = UserId(Guid.Parse(userIdStr))
-                            let memberships = Auth.loadUserMemberships conn userId normalizedEmail
-
-                            match memberships with
+                            match Auth.loadMemberships conn uid normalized.Email with
                             | [] -> return Error(ApiError.single ApiErrorCode.EmailNotWhitelisted)
-                            | primaryMembership :: _ ->
-                                let rawSessionToken = Auth.generateSecureSessionToken ()
-                                let tokenHash = Auth.hashSessionToken rawSessionToken
-                                let expiresIso = DateTimeOffset.UtcNow.AddDays(30.0).ToString("O")
+                            | primary :: _ ->
+                                let rawToken = Auth.newSessionToken ()
+                                let expires = DateTimeOffset.UtcNow.AddDays(30.0).ToString("O")
 
                                 conn
                                 |> Db.newCommand
-                                    """
-                                    INSERT INTO user_sessions (token_hash, user_id, active_org_id, expires_at, created_at)
-                                    VALUES (@hash, @user_id, @org_id, @expires, @now)
-                                    """
+                                    "INSERT INTO user_sessions (token_hash, user_id, active_org_id, expires_at, created_at) VALUES (@h, @uid, @oid, @exp, @now)"
                                 |> Db.setTransaction tx
-                                |> Db.setParams
-                                    [ "hash", SqlType.String tokenHash
-                                      "user_id", SqlType.String userIdStr
-                                      "org_id", SqlType.String(primaryMembership.OrganizationId.ToDbString())
-                                      "expires", SqlType.String expiresIso
-                                      "now", SqlType.String nowIso ]
+                                |> Db.setParams [ "h", SqlType.String(Auth.hashToken rawToken)
+                                                  "uid", SqlType.String uid.Value
+                                                  "oid", SqlType.String primary.OrgId.Str
+                                                  "exp", SqlType.String expires
+                                                  "now", SqlType.String now ]
                                 |> Db.exec
 
-                                Auth.issueSessionCookie ctx rawSessionToken primaryMembership.OrganizationId
-                                return Ok(userId, primaryMembership)
+                                Auth.issueCookies ctx rawToken primary.OrgId
+                                return Ok(uid, primary)
                     })
 
-            let! redirectTarget = computeSmartRedirectAsync db activeMembership validReturnTo
-
             return
-                { UserId = userId.ToDbString()
-                  HolderId = activeMembership.HolderId.ToDbString()
-                  ActiveOrganizationId = activeMembership.OrganizationId.ToDbString()
-                  Role = int activeMembership.Role
-                  RedirectTo = redirectTarget }
+                { UserId = userId.Value
+                  HolderId = activeOrg.HolderId.Str
+                  ActiveOrganizationId = activeOrg.OrgId.Str
+                  Role = int activeOrg.Role
+                  RedirectTo = smartRedirect db activeOrg validReturnTo }
         }
 
-    let getLoginBootstrapHandler (db: IDbContext) (devMode: bool) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                let returnToParam = Http.tryGetQueryParam "return_to" ctx
-                let! validReturnTo = validateReturnToPath returnToParam
+    let endpoints (db: IDbContext) (googleValidator: IGoogleTokenValidator) (devMode: bool) : Endpoint list =
+        [ GET [ route
+                    "/pages/login"
+                    (Http.runWorkflow (fun ctx ->
+                        taskResult {
+                            let! validReturnTo = validateReturnTo (Http.queryParam "return_to" ctx)
 
-                match Auth.authenticateRequest db devMode ctx with
-                | Ok auth ->
-                    let! target = computeSmartRedirectAsync db auth.ActiveOrg validReturnTo
+                            match Auth.authenticate db devMode ctx with
+                            | Ok auth ->
+                                return
+                                    { IsAuthenticated = true
+                                      RedirectTo = Some(smartRedirect db auth.ActiveOrg validReturnTo)
+                                      ReturnTo = validReturnTo }
+                            | Error _ ->
+                                return
+                                    { IsAuthenticated = false
+                                      RedirectTo = None
+                                      ReturnTo = validReturnTo }
+                        }))
+                |> addOpenApiSimple<unit, LoginBootstrapDto> ]
+          POST [ route
+                     "/auth/google"
+                     (Http.runWorkflow (fun ctx ->
+                         taskResult {
+                             let! req = Http.bindJson<GoogleLoginRequest> ctx
 
-                    return
-                        { IsAuthenticated = true
-                          RedirectTo = Some target
-                          ReturnTo = validReturnTo }
-                | Error _ ->
-                    return
-                        { IsAuthenticated = false
-                          RedirectTo = None
-                          ReturnTo = validReturnTo }
-            })
+                             let! token =
+                                 Parse.nonEmpty "id_token" req.IdToken
+                                 |> Result.mapError (fun e -> ApiError.fromFields [ e ])
 
-    let postGoogleLoginHandler (db: IDbContext) (googleValidator: IGoogleTokenValidator) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                let! req = Http.bindJsonSafe<GoogleLoginRequestDto> ctx
+                             let! googleUser = googleValidator.ValidateAsync token.Value
+                             return! completeLogin db ctx googleUser None req.ReturnTo
+                         }))
+                 |> addOpenApiSimple<GoogleLoginRequest, LoginResponse>
 
-                let! idToken =
-                    SmartConstructors.createNonEmptyString "id_token" req.IdToken
-                    |> Result.mapError (fun e -> ApiError.fromFieldErrors [ e ])
+                 route
+                     "/auth/dev-login"
+                     (Http.runWorkflow (fun ctx ->
+                         taskResult {
+                             if not devMode then
+                                 return! Error(ApiError.single ApiErrorCode.ForbiddenRole)
+                             else
+                                 let! req = Http.bindJson<DevLoginRequest> ctx
 
-                let! googleUser = googleValidator.ValidateIdTokenAsync idToken.Value
-                return! completeIdentityLoginAsync db ctx googleUser None req.ReturnTo
-            })
+                                 let! email =
+                                     Parse.nonEmpty "email" req.Email
+                                     |> Result.mapError (fun e -> ApiError.fromFields [ e ])
 
-    let postDevLoginHandler (db: IDbContext) (devModeEnabled: bool) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                if not devModeEnabled then
-                    return! Error(ApiError.single ApiErrorCode.ForbiddenRole)
-                else
-                    let! req = Http.bindJsonSafe<DevLoginRequestDto> ctx
+                                 let user =
+                                     { Subject = "dev-sub-" + email.Value.ToLowerInvariant()
+                                       Email = email.Value
+                                       FullName =
+                                         trimOpt req.FullName
+                                         |> Option.defaultValue "Dev User"
+                                       AvatarUrl = None }
 
-                    let! email =
-                        SmartConstructors.createNonEmptyString "email" req.Email
-                        |> Result.mapError (fun e -> ApiError.fromFieldErrors [ e ])
+                                 return! completeLogin db ctx user req.IsSuperAdmin req.ReturnTo
+                         }))
+                 |> addOpenApiSimple<DevLoginRequest, LoginResponse>
 
-                    let fullName =
-                        SmartConstructors.createOptionalTrimmedString req.FullName
-                        |> Option.defaultValue "Dev User"
+                 route
+                     "/auth/logout"
+                     (Http.runWorkflow (fun ctx ->
+                         taskResult {
+                             match ctx.Request.Cookies.TryGetValue Auth.SessionCookie with
+                             | true, raw ->
+                                 match trimNullable raw with
+                                 | Some token ->
+                                     let! _ =
+                                         db.WriteTxAsync (fun conn tx ->
+                                             task {
+                                                 conn
+                                                 |> Db.newCommand "DELETE FROM user_sessions WHERE token_hash=@h"
+                                                 |> Db.setTransaction tx
+                                                 |> Db.setParams [ "h", SqlType.String(Auth.hashToken token) ]
+                                                 |> Db.exec
 
-                    let mockPayload =
-                        { GoogleSubject = "dev-sub-" + email.Value.ToLowerInvariant()
-                          Email = email.Value.ToLowerInvariant()
-                          FullName = fullName
-                          AvatarUrl = None }
+                                                 return Ok()
+                                             })
 
-                    return! completeIdentityLoginAsync db ctx mockPayload req.IsSuperAdmin req.ReturnTo
-            })
+                                     ()
+                                 | None -> ()
+                             | _ -> ()
 
-    let postLogoutHandler (db: IDbContext) : EndpointHandler =
-        Http.runWorkflow (fun ctx ->
-            taskResult {
-                let cookieTokenOpt =
-                    match ctx.Request.Cookies.TryGetValue(Auth.SessionCookieName) with
-                    | true, raw -> ofNullableTrimmed raw
-                    | false, _ -> None
-
-                match cookieTokenOpt with
-                | Some rawToken ->
-                    let tokenHash = Auth.hashSessionToken rawToken
-
-                    let! _ =
-                        db.ExecuteWriteTransactionAsync(fun conn tx ->
-                            task {
-                                conn
-                                |> Db.newCommand "DELETE FROM user_sessions WHERE token_hash = @hash"
-                                |> Db.setTransaction tx
-                                |> Db.setParams [ "hash", SqlType.String tokenHash ]
-                                |> Db.exec
-
-                                return Ok()
-                            })
-
-                    ctx.Response.Cookies.Delete(Auth.SessionCookieName)
-                    return {| logged_out = true |}
-                | None ->
-                    ctx.Response.Cookies.Delete(Auth.SessionCookieName)
-                    return {| logged_out = true |}
-            })
-
-    let endpoints (db: IDbContext) (googleValidator: IGoogleTokenValidator) (devModeEnabled: bool) : Endpoint list =
-        [ GET [ route "/pages/login" (getLoginBootstrapHandler db devModeEnabled) ]
-          POST
-              [ route "/auth/google" (postGoogleLoginHandler db googleValidator)
-                route "/auth/dev-login" (postDevLoginHandler db devModeEnabled)
-                route "/auth/logout" (postLogoutHandler db) ] ]
+                             ctx.Response.Cookies.Delete Auth.SessionCookie
+                             return { LoggedOut = true }
+                         }))
+                 |> addOpenApiSimple<unit, LogoutResponse> ] ]
