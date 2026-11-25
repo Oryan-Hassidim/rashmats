@@ -1,7 +1,6 @@
 namespace Rashmatz.Pages.TransfersNewParties
 
 open Oxpecker
-open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
@@ -37,5 +36,5 @@ module Server =
                     let! selected = loadTemplate db auth.ActiveOrg.OrgId tplId
                     return ({ Navbar = Navbar.build db ctx auth; Page = { SelectedTemplate = selected } } : Navbar.PageEnvelope<TransfersNewPartiesPage>)
                 }))
-            |> addOpenApiSimple<unit, Navbar.PageEnvelope<TransfersNewPartiesPage>>
+            |> Http.openApiGet<Navbar.PageEnvelope<TransfersNewPartiesPage>> [ 401; 403; 404; 422 ]
           ] ]

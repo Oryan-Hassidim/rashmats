@@ -1,16 +1,17 @@
 namespace Rashmatz.Pages.Login
 
 open System
+open System.ComponentModel.DataAnnotations
 open Microsoft.AspNetCore.Http
 open Microsoft.Data.Sqlite
 open Oxpecker
-open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
 
 /// Vertical Slice — Page 1: Login & Smart Routing (`/login`)
 module Server =
+    open Rashmatz.Shared.Navbar
 
     type LoginBootstrapDto =
         { IsAuthenticated: bool
@@ -19,12 +20,14 @@ module Server =
 
     [<CLIMutable>]
     type GoogleLoginRequest =
-        { IdToken: string option
+        { [<Required; MinLength(1)>]
+          IdToken: string
           ReturnTo: string option }
 
     [<CLIMutable>]
     type DevLoginRequest =
-        { Email: string option
+        { [<Required; MinLength(1)>]
+          Email: string
           FullName: string option
           IsSuperAdmin: bool option
           ReturnTo: string option }
@@ -42,9 +45,9 @@ module Server =
         match trimOpt rawOpt with
         | None -> Ok None
         | Some s when
-            s.StartsWith("/")
-            && not (s.StartsWith("//"))
-            && not (s.StartsWith("/\\"))
+            s.StartsWith "/"
+            && not (s.StartsWith "//")
+            && not (s.StartsWith "/\\")
             && not (s.StartsWith("/login", StringComparison.OrdinalIgnoreCase))
             ->
             Ok(Some s)
@@ -146,8 +149,8 @@ module Server =
             let! validReturnTo = validateReturnTo returnToRaw
             let normalized = { user with Email = user.Email.Trim().ToLowerInvariant() }
 
-            let! (userId, activeOrg) =
-                db.WriteTxAsync (fun (conn: SqliteConnection) (tx: SqliteTransaction) ->
+            let! (userId: UserId, activeOrg: OrgMembership) =
+                db.WriteTxAsync (fun conn tx ->
                     task {
                         match checkWhitelist conn tx normalized.Email with
                         | Error e -> return Error e
@@ -166,7 +169,7 @@ module Server =
                                     "INSERT INTO user_sessions (token_hash, user_id, active_org_id, expires_at, created_at) VALUES (@h, @uid, @oid, @exp, @now)"
                                 |> Db.setTransaction tx
                                 |> Db.setParams [ "h", SqlType.String(Auth.hashToken rawToken)
-                                                  "uid", SqlType.String uid.Value
+                                                  "uid", SqlType.String uid.Str
                                                   "oid", SqlType.String primary.OrgId.Str
                                                   "exp", SqlType.String expires
                                                   "now", SqlType.String now ]
@@ -177,7 +180,7 @@ module Server =
                     })
 
             return
-                { UserId = userId.Value
+                { UserId = userId.Str
                   HolderId = activeOrg.HolderId.Str
                   ActiveOrganizationId = activeOrg.OrgId.Str
                   Role = int activeOrg.Role
@@ -203,7 +206,7 @@ module Server =
                                       RedirectTo = None
                                       ReturnTo = validReturnTo }
                         }))
-                |> addOpenApiSimple<unit, LoginBootstrapDto> ]
+                |> Http.openApiGet<LoginBootstrapDto> [ 422 ] ]
           POST [ route
                      "/auth/google"
                      (Http.runWorkflow (fun ctx ->
@@ -211,13 +214,13 @@ module Server =
                              let! req = Http.bindJson<GoogleLoginRequest> ctx
 
                              let! token =
-                                 Parse.nonEmpty "id_token" req.IdToken
+                                 Parse.nonEmpty "id_token" (Some req.IdToken)
                                  |> Result.mapError (fun e -> ApiError.fromFields [ e ])
 
                              let! googleUser = googleValidator.ValidateAsync token.Value
                              return! completeLogin db ctx googleUser None req.ReturnTo
                          }))
-                 |> addOpenApiSimple<GoogleLoginRequest, LoginResponse>
+                 |> Http.openApiPost<GoogleLoginRequest, LoginResponse> [ 401; 403; 422 ]
 
                  route
                      "/auth/dev-login"
@@ -229,7 +232,7 @@ module Server =
                                  let! req = Http.bindJson<DevLoginRequest> ctx
 
                                  let! email =
-                                     Parse.nonEmpty "email" req.Email
+                                     Parse.nonEmpty "email" (Some req.Email)
                                      |> Result.mapError (fun e -> ApiError.fromFields [ e ])
 
                                  let user =
@@ -242,7 +245,7 @@ module Server =
 
                                  return! completeLogin db ctx user req.IsSuperAdmin req.ReturnTo
                          }))
-                 |> addOpenApiSimple<DevLoginRequest, LoginResponse>
+                 |> Http.openApiPost<DevLoginRequest, LoginResponse> [ 403; 422 ]
 
                  route
                      "/auth/logout"
@@ -271,4 +274,4 @@ module Server =
                              ctx.Response.Cookies.Delete Auth.SessionCookie
                              return { LoggedOut = true }
                          }))
-                 |> addOpenApiSimple<unit, LogoutResponse> ] ]
+                 |> Http.openApiPost<unit, LogoutResponse> [] ] ]

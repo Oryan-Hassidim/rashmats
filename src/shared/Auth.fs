@@ -36,13 +36,13 @@ type AuthContext =
       AvailableOrgs: OrgMembership list }
 
 module Auth =
-    [<Literal>]
+    [<Literal>] 
     let SessionCookie = "rashmatz_session"
-    [<Literal>]
+    [<Literal>] 
     let ActiveOrgCookie = "active_org_id"
-    [<Literal>]
+    [<Literal>] 
     let ActiveOrgHeader = "X-Active-Org-Id"
-    [<Literal>]
+    [<Literal>] 
     let DevEmailHeader = "X-Dev-User-Email"
 
     let hashToken (raw: string) =
@@ -64,7 +64,7 @@ module Auth =
               AND (ch.user_id = @uid OR LOWER(ch.invited_email) = LOWER(@email))
             ORDER BY o.name ASC
             """
-        |> Db.setParams [ "uid", SqlType.String userId.Value; "email", SqlType.String(email.Trim().ToLowerInvariant()) ]
+        |> Db.setParams [ "uid", SqlType.String userId.Str; "email", SqlType.String(email.Trim().ToLowerInvariant()) ]
         |> Db.query (fun rd ->
             { OrgId = OrgId(Guid.Parse(rd.ReadString "org_id"))
               OrgName = rd.ReadString "org_name"

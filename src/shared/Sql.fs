@@ -14,7 +14,7 @@ module Sql =
             logicalName,
             fun name ->
                 let asm = Assembly.GetExecutingAssembly()
-                use stream = asm.GetManifestResourceStream name
+                use stream = asm.GetManifestResourceStream(name)
 
                 match stream with
                 | null -> failwith $"Embedded SQL resource '{name}' not found."

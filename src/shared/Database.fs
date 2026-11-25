@@ -26,14 +26,21 @@ type DevSeedSummary =
 /// - Serializes writers through a FIFO `SemaphoreSlim(1,1)` gate to eliminate `SQLITE_BUSY` under parallel audit scans.
 type IDbContext =
     abstract OpenRead: unit -> SqliteConnection
-    abstract WriteTxAsync<'T> : (SqliteConnection -> SqliteTransaction -> Task<Result<'T, ApiError>>) -> Task<Result<'T, ApiError>>
+
+    abstract WriteTxAsync<'T> :
+        (SqliteConnection -> SqliteTransaction -> Task<Result<'T, ApiError>>) -> Task<Result<'T, ApiError>>
 
 module Database =
 
     let private openConfigured (connStr: string) =
         let conn = new SqliteConnection(connStr)
         conn.Open()
-        conn |> Db.newCommand "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;" |> Db.exec
+
+        conn
+        |> Db.newCommand
+            "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;"
+        |> Db.exec
+
         conn
 
     type SqliteDbContext(connectionString: string) =
@@ -41,23 +48,37 @@ module Database =
 
         do
             use conn = openConfigured connectionString
-            conn |> Db.newCommand (Sql.load "shared/schema.sql") |> Db.exec
+
+            conn
+            |> Db.newCommand (Sql.load "shared/schema.sql")
+            |> Db.exec
 
         interface IDbContext with
             member _.OpenRead() = openConfigured connectionString
 
-            member _.WriteTxAsync<'T>(work: SqliteConnection -> SqliteTransaction -> Task<Result<'T, ApiError>>) : Task<Result<'T, ApiError>> =
+            member _.WriteTxAsync<'T> work =
                 task {
                     do! writeGate.WaitAsync()
+
                     try
                         use conn = openConfigured connectionString
                         use tx = conn.BeginTransaction(IsolationLevel.Serializable)
+
                         try
                             match! work conn tx with
-                            | Ok v -> tx.Commit(); return Ok v
-                            | Error e -> tx.Rollback(); return Error e
-                        with _ ->
-                            try tx.Rollback() with _ -> ()
+                            | Ok (v: 'T) ->
+                                tx.Commit()
+                                return Ok v
+                            | Error e ->
+                                tx.Rollback()
+                                return Error e
+                        with
+                        | _ ->
+                            try
+                                tx.Rollback()
+                            with
+                            | _ -> ()
+
                             return Error(ApiError.single ApiErrorCode.InternalError)
                     finally
                         writeGate.Release() |> ignore
@@ -81,20 +102,28 @@ module Database =
         let templateId = "99999999-9999-4999-8999-999999999991"
 
         use conn = db.OpenRead()
+
         let existing =
             conn
             |> Db.newCommand "SELECT id, slug FROM organizations ORDER BY created_at ASC LIMIT 1"
             |> Db.querySingle (fun rd -> rd.ReadString "id", rd.ReadString "slug")
 
         match existing with
-        | Some(existingOrgId, existingSlug) ->
-            { SeededNewData = false; OrganizationId = existingOrgId; OrganizationSlug = existingSlug
-              AdminEmail = "admin@rashmatz.org"; AdminHolderId = adminHolderId
-              MemberEmail = "soldier@rashmatz.org"; MemberHolderId = memberHolderId
-              WarehouseHolderId = warehouseHolderId; TemplateId = templateId
-              Radio1Id = radio1Id; BatteryTypeId = batteryTypeId }
+        | Some (existingOrgId, existingSlug) ->
+            { SeededNewData = false
+              OrganizationId = existingOrgId
+              OrganizationSlug = existingSlug
+              AdminEmail = "admin@rashmatz.org"
+              AdminHolderId = adminHolderId
+              MemberEmail = "soldier@rashmatz.org"
+              MemberHolderId = memberHolderId
+              WarehouseHolderId = warehouseHolderId
+              TemplateId = templateId
+              Radio1Id = radio1Id
+              BatteryTypeId = batteryTypeId }
         | None ->
             let now = DateTimeOffset.UtcNow.ToString("O")
+
             conn
             |> Db.newCommand
                 """
@@ -140,28 +169,47 @@ module Database =
                     (@tpl_id, 1, @radio_tid, 1),
                     (@tpl_id, 2, @bat_tid, 4);
                 """
-            |> Db.setParams
-                [ "org_id", SqlType.String orgId; "dept_id", SqlType.String deptId
-                  "admin_uid", SqlType.String adminUserId; "member_uid", SqlType.String memberUserId
-                  "admin_hid", SqlType.String adminHolderId; "member_hid", SqlType.String memberHolderId
-                  "wh_hid", SqlType.String warehouseHolderId; "cat_id", SqlType.String catId
-                  "radio_tid", SqlType.String radioTypeId; "bat_tid", SqlType.String batteryTypeId
-                  "radio1", SqlType.String radio1Id; "radio2", SqlType.String radio2Id
-                  "stock_id", SqlType.String stockId; "tpl_id", SqlType.String templateId
-                  "now", SqlType.String now ]
+            |> Db.setParams [ "org_id", SqlType.String orgId
+                              "dept_id", SqlType.String deptId
+                              "admin_uid", SqlType.String adminUserId
+                              "member_uid", SqlType.String memberUserId
+                              "admin_hid", SqlType.String adminHolderId
+                              "member_hid", SqlType.String memberHolderId
+                              "wh_hid", SqlType.String warehouseHolderId
+                              "cat_id", SqlType.String catId
+                              "radio_tid", SqlType.String radioTypeId
+                              "bat_tid", SqlType.String batteryTypeId
+                              "radio1", SqlType.String radio1Id
+                              "radio2", SqlType.String radio2Id
+                              "stock_id", SqlType.String stockId
+                              "tpl_id", SqlType.String templateId
+                              "now", SqlType.String now ]
             |> Db.exec
 
-            { SeededNewData = true; OrganizationId = orgId; OrganizationSlug = "unit-8200"
-              AdminEmail = "admin@rashmatz.org"; AdminHolderId = adminHolderId
-              MemberEmail = "soldier@rashmatz.org"; MemberHolderId = memberHolderId
-              WarehouseHolderId = warehouseHolderId; TemplateId = templateId
-              Radio1Id = radio1Id; BatteryTypeId = batteryTypeId }
+            { SeededNewData = true
+              OrganizationId = orgId
+              OrganizationSlug = "unit-8200"
+              AdminEmail = "admin@rashmatz.org"
+              AdminHolderId = adminHolderId
+              MemberEmail = "soldier@rashmatz.org"
+              MemberHolderId = memberHolderId
+              WarehouseHolderId = warehouseHolderId
+              TemplateId = templateId
+              Radio1Id = radio1Id
+              BatteryTypeId = batteryTypeId }
 
     /// Serialized concurrent-safe audit barcode scan write.
-    let recordAuditScan (db: IDbContext) (orgId: OrgId) (sessionId: AuditSessionId) (scanner: HolderId) (barcode: Barcode) =
-        db.WriteTxAsync(fun conn tx ->
+    let recordAuditScan
+        (db: IDbContext)
+        (orgId: OrgId)
+        (sessionId: AuditSessionId)
+        (scanner: HolderId)
+        (barcode: Barcode)
+        =
+        db.WriteTxAsync (fun conn tx ->
             task {
                 let now = DateTimeOffset.UtcNow.ToString("O")
+
                 let found =
                     conn
                     |> Db.newCommand
@@ -172,19 +220,28 @@ module Database =
                         WHERE si.organization_id = @org_id AND si.barcode = @barcode
                         """
                     |> Db.setTransaction tx
-                    |> Db.setParams [ "sid", SqlType.String sessionId.Str; "org_id", SqlType.String orgId.Str; "barcode", SqlType.String barcode.Value ]
-                    |> Db.querySingle (fun rd -> rd.ReadString "id", rd.ReadStringOption "record_id", rd.ReadStringOption "expected_holder_id")
+                    |> Db.setParams [ "sid", SqlType.String sessionId.Str
+                                      "org_id", SqlType.String orgId.Str
+                                      "barcode", SqlType.String barcode.Value ]
+                    |> Db.querySingle (fun rd ->
+                        rd.ReadString "id", rd.ReadStringOption "record_id", rd.ReadStringOption "expected_holder_id")
 
                 match found with
-                | Some(itemId, Some recordId, expectedOpt) ->
+                | Some (itemId, Some recordId, expectedOpt) ->
                     let status =
-                        if expectedOpt = Some scanner.Str then int AuditScanStatus.Verified
-                        else int AuditScanStatus.Mismatch
+                        if expectedOpt = Some scanner.Str then
+                            int AuditScanStatus.Verified
+                        else
+                            int AuditScanStatus.Mismatch
 
                     conn
-                    |> Db.newCommand "UPDATE audit_item_records SET scan_status=@st, scanned_by_holder_id=@by, scanned_at=@now, updated_at=@now WHERE id=@id"
+                    |> Db.newCommand
+                        "UPDATE audit_item_records SET scan_status=@st, scanned_by_holder_id=@by, scanned_at=@now, updated_at=@now WHERE id=@id"
                     |> Db.setTransaction tx
-                    |> Db.setParams [ "st", SqlType.Int32 status; "by", SqlType.String scanner.Str; "now", SqlType.String now; "id", SqlType.String recordId ]
+                    |> Db.setParams [ "st", SqlType.Int32 status
+                                      "by", SqlType.String scanner.Str
+                                      "now", SqlType.String now
+                                      "id", SqlType.String recordId ]
                     |> Db.exec
 
                     return Ok(status, itemId, expectedOpt)

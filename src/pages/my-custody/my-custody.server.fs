@@ -1,7 +1,6 @@
 namespace Rashmatz.Pages.MyCustody
 
 open Oxpecker
-open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
@@ -95,5 +94,5 @@ module Server =
                     let! auth = Auth.requireMember db devMode ctx
                     return ({ Navbar = Navbar.build db ctx auth; Page = loadPage db auth } : Navbar.PageEnvelope<MyCustodyPage>)
                 }))
-            |> addOpenApiSimple<unit, Navbar.PageEnvelope<MyCustodyPage>>
+            |> Http.openApiGet<Navbar.PageEnvelope<MyCustodyPage>> [ 401; 403 ]
           ] ]

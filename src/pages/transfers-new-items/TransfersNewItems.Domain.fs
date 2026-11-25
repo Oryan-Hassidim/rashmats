@@ -1,5 +1,6 @@
 namespace Rashmatz.Pages.TransfersNewItems
 
+open System.ComponentModel.DataAnnotations
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
 
@@ -25,9 +26,26 @@ module Domain =
 
     [<CLIMutable>] type CheckUnassignedQuery = { Barcode: string option; SerialNumber: string option }
     type CheckUnassignedResponse = { BarcodeAvailable: bool; SerialNumberAvailable: bool; ConflictingItemId: string option }
-    [<CLIMutable>] type CreateItemTypeRequest = { Name: string option; CategoryId: string option; NewCategoryName: string option; TrackingType: int option; UnitOfMeasure: string option; Description: string option }
-    [<CLIMutable>] type IntakeSerializedInput = { ItemTypeId: string option; Barcode: string option; SerialNumber: string option }
-    [<CLIMutable>] type QuantLineInput = { ItemTypeId: string option; Quantity: int }
+
+    [<CLIMutable>]
+    type CreateItemTypeRequest =
+        { [<Required; MinLength(1)>] Name: string
+          CategoryId: string option
+          NewCategoryName: string option
+          [<Range(0, 1)>] TrackingType: int option
+          UnitOfMeasure: string option
+          Description: string option }
+
+    [<CLIMutable>]
+    type IntakeSerializedInput =
+        { [<Required; MinLength(1)>] ItemTypeId: string
+          [<Required; MinLength(1)>] Barcode: string
+          SerialNumber: string option }
+
+    [<CLIMutable>]
+    type QuantLineInput =
+        { [<Required; MinLength(1)>] ItemTypeId: string
+          [<Range(1, 1000000)>] Quantity: int }
 
     [<CLIMutable>]
     type CommitTransferRequest =
@@ -64,7 +82,7 @@ module Domain =
     // ── Applicative Validation ───────────────────────────────────────────────
     let validateCreateItemType (req: CreateItemTypeRequest) : Result<ValidatedCreateItemType, ApiError> =
         validation {
-            let! name = Parse.nonEmpty "name" req.Name
+            let! name = Parse.nonEmpty "name" (Some req.Name)
             and! catGuid = Parse.optGuid "category_id" req.CategoryId
             and! tracking =
                 match req.TrackingType |> Option.defaultValue 1 with
@@ -133,8 +151,8 @@ module Domain =
             (req.NewIntakeSerializedItems |> Option.defaultValue [])
             |> List.mapi (fun i x ->
                 validation {
-                    let! tid = Parse.itemTypeId $"new_intake_serialized_items[{i}].item_type_id" (Option.defaultValue "" x.ItemTypeId)
-                    and! bc = Parse.barcode $"new_intake_serialized_items[{i}].barcode" x.Barcode
+                    let! tid = Parse.itemTypeId $"new_intake_serialized_items[{i}].item_type_id" (Some x.ItemTypeId |> Option.defaultValue "")
+                    and! bc = Parse.barcode $"new_intake_serialized_items[{i}].barcode" (Some x.Barcode)
                     return { ItemTypeId = tid; Barcode = bc; SerialNumber = trimOpt x.SerialNumber }
                 })
 
@@ -142,7 +160,7 @@ module Domain =
             (req.QuantitativeLines |> Option.defaultValue [])
             |> List.mapi (fun i x ->
                 validation {
-                    let! tid = Parse.itemTypeId $"quantitative_lines[{i}].item_type_id" (Option.defaultValue "" x.ItemTypeId)
+                    let! tid = Parse.itemTypeId $"quantitative_lines[{i}].item_type_id" (Some x.ItemTypeId |> Option.defaultValue "")
                     and! qty = Parse.positiveQty $"quantitative_lines[{i}].quantity" x.Quantity
                     return { ItemTypeId = tid; Quantity = qty }
                 })

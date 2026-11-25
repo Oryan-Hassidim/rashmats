@@ -5,16 +5,17 @@ open System.Text.Json
 open System.Threading.Tasks
 open Microsoft.AspNetCore.Http
 open Oxpecker
+open Oxpecker.OpenApi
 
-/// Oxpecker HTTP helpers connecting Task<Result<'T, ApiError>> to ASP.NET Core responses
-/// using global SnakeCaseLower JSON serialization.
+/// Oxpecker HTTP & OpenAPI helpers connecting Task<Result<'T, ApiError>> to ASP.NET Core responses
+/// using global SnakeCaseLower JSON serialization (with Web defaults so numeric strings match OpenAPI).
 module Http =
 
     let snakeCaseJsonOptions =
-        JsonSerializerOptions(
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            PropertyNameCaseInsensitive = true
-        )
+        let opts = JsonSerializerOptions(JsonSerializerDefaults.Web)
+        opts.PropertyNamingPolicy <- JsonNamingPolicy.SnakeCaseLower
+        opts.PropertyNameCaseInsensitive <- true
+        opts
 
     let runWorkflow (workflow: HttpContext -> Task<Result<'T, ApiError>>) : EndpointHandler =
         fun ctx ->
@@ -33,14 +34,18 @@ module Http =
         task {
             try
                 let! model = ctx.BindJson<'T>()
-                if isNull (box model) then return Error(ApiError.single ApiErrorCode.ValidationFailed)
-                else return Ok model
-            with _ ->
-                return Error(ApiError.single ApiErrorCode.ValidationFailed)
+
+                if isNull (box model) then
+                    return Error(ApiError.single ApiErrorCode.ValidationFailed)
+                else
+                    return Ok model
+            with
+            | _ -> return Error(ApiError.single ApiErrorCode.ValidationFailed)
         }
 
     let queryParam (key: string) (ctx: HttpContext) =
-        ctx.TryGetQueryValue key |> Option.bind (fun s -> trimNullable s)
+        ctx.TryGetQueryValue key
+        |> Option.bind (fun s -> trimNullable s)
 
     let header (key: string) (ctx: HttpContext) =
         match ctx.Request.Headers.TryGetValue key with
@@ -50,5 +55,27 @@ module Http =
     /// Registers an HTTP `QUERY` endpoint on Oxpecker's standard `route`.
     let queryRoute (path: string) (handler: EndpointHandler) : Endpoint =
         route path (fun ctx ->
-            if String.Equals(ctx.Request.Method, "QUERY", StringComparison.OrdinalIgnoreCase) then handler ctx
-            else ctx.Response.StatusCode <- StatusCodes.Status405MethodNotAllowed; Task.CompletedTask)
+            if String.Equals(ctx.Request.Method, "QUERY", StringComparison.OrdinalIgnoreCase) then
+                handler ctx
+            else
+                ctx.Response.StatusCode <- StatusCodes.Status405MethodNotAllowed
+                Task.CompletedTask)
+
+    /// Attaches standard ApiErrorDto OpenAPI responses (401, 403, 404, 409, 422) so Schemathesis validates every error status.
+    let private withErrorResponses (codes: int list) (endpoint: Endpoint) : Endpoint =
+        codes
+        |> List.fold
+            (fun ep status ->
+                ep
+                |> addMetadata (ProducesResponseTypeMetadata(status, typeof<ApiErrorDto>, [| "application/json" |])))
+            endpoint
+
+    let openApiGet<'Res> (errorCodes: int list) (endpoint: Endpoint) : Endpoint =
+        endpoint
+        |> addOpenApiSimple<unit, 'Res>
+        |> withErrorResponses errorCodes
+
+    let openApiPost<'Req, 'Res> (errorCodes: int list) (endpoint: Endpoint) : Endpoint =
+        endpoint
+        |> addOpenApiSimple<'Req, 'Res>
+        |> withErrorResponses errorCodes

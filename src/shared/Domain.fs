@@ -15,7 +15,7 @@ module Domain =
     [<Struct>]
     type UserId =
         | UserId of Guid
-        member x.Value = let (UserId g) = x in g.ToString("D")
+        member x.Str = let (UserId g) = x in g.ToString("D")
 
     [<Struct>]
     type HolderId =
@@ -148,7 +148,7 @@ module Domain =
 
         let nonEmpty field (raw: string option) =
             match trimOpt raw with
-            | Some s -> s |> NonEmptyText |> Ok
+            | Some s -> Ok(NonEmptyText s)
             | None -> Error(ApiError.field field ApiErrorCode.EmptyRequiredField)
 
         let barcode field raw =

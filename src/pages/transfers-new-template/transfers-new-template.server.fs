@@ -1,7 +1,6 @@
 namespace Rashmatz.Pages.TransfersNewTemplate
 
 open Oxpecker
-open Oxpecker.OpenApi
 open Donald
 open FsToolkit.ErrorHandling
 open Rashmatz.Shared
@@ -31,5 +30,5 @@ module Server =
                               DefaultDestHolderId = rd.ReadStringOption "default_dest_holder_id" })
                     return ({ Navbar = Navbar.build db ctx auth; Page = { Templates = templates } } : Navbar.PageEnvelope<TransfersNewTemplatePage>)
                 }))
-            |> addOpenApiSimple<unit, Navbar.PageEnvelope<TransfersNewTemplatePage>>
+            |> Http.openApiGet<Navbar.PageEnvelope<TransfersNewTemplatePage>> [ 401; 403 ]
           ] ]

@@ -66,7 +66,7 @@ module App =
         services.AddRouting() |> ignore
         services.AddOxpecker() |> ignore
 
-        services.AddSingleton<IJsonSerializer>(SystemTextJsonSerializer(Http.snakeCaseJsonOptions))
+        services.AddSingleton<IJsonSerializer>(SystemTextJsonSerializer Http.snakeCaseJsonOptions)
         |> ignore
 
         services.ConfigureHttpJsonOptions (fun o ->
@@ -88,7 +88,7 @@ module App =
                              let! req = Http.bindJson<Navbar.CreateOrgRequest> ctx
                              return! Navbar.createOrganization db auth req
                          }))
-                 |> addOpenApiSimple<Navbar.CreateOrgRequest, Navbar.CreateOrgResponse>
+                 |> Http.openApiPost<Navbar.CreateOrgRequest, Navbar.CreateOrgResponse> [ 401; 403; 409; 422 ]
 
                  route
                      "/dev/seed"
@@ -99,13 +99,13 @@ module App =
                              else
                                  return Database.ensureDevSeed db
                          }))
-                 |> addOpenApiSimple<unit, DevSeedSummary> ]
-          yield! Pages.Login.Server.endpoints db googleValidator devMode
-          yield! Pages.MyCustody.Server.endpoints db devMode
-          yield! Pages.Relocate.Server.endpoints db devMode
-          yield! Pages.TransfersNewTemplate.Server.endpoints db devMode
-          yield! Pages.TransfersNewParties.Server.endpoints db devMode
-          yield! Pages.TransfersNewItems.Endpoints.endpoints db devMode ]
+                 |> Http.openApiPost<unit, DevSeedSummary> [ 403 ] ]
+          yield! Rashmatz.Pages.Login.Server.endpoints db googleValidator devMode
+          yield! Rashmatz.Pages.MyCustody.Server.endpoints db devMode
+          yield! Rashmatz.Pages.Relocate.Server.endpoints db devMode
+          yield! Rashmatz.Pages.TransfersNewTemplate.Server.endpoints db devMode
+          yield! Rashmatz.Pages.TransfersNewParties.Server.endpoints db devMode
+          yield! Rashmatz.Pages.TransfersNewItems.Endpoints.endpoints db devMode ]
 
     let configure (app: WebApplication) (db: IDbContext) (googleValidator: IGoogleTokenValidator) (devMode: bool) =
         app.MapOpenApi() |> ignore
@@ -119,7 +119,7 @@ module Program =
 
     [<EntryPoint>]
     let main args =
-        let builder = WebApplication.CreateBuilder args
+        let builder = WebApplication.CreateBuilder(args)
 
         let connStr =
             trimNullable builder.Configuration["ConnectionStrings:Sqlite"]

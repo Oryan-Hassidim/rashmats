@@ -1,6 +1,7 @@
 namespace Rashmatz.Shared
 
 open System
+open System.ComponentModel.DataAnnotations
 open System.Security.Cryptography
 open System.Text
 open System.Threading.Tasks
@@ -10,10 +11,9 @@ open Donald
 open FsToolkit.ErrorHandling
 
 /// Global Navbar, X-Holders-Hash ETag caching, and Super-Admin organization creation.
-/// Zero [<JsonPropertyName>] attributes — global SnakeCaseLower policy handles wire formatting.
 module Navbar =
 
-    [<Literal>]
+    [<Literal>] 
     let HoldersHashHeader = "X-Holders-Hash"
 
     type HolderDirEntry =
@@ -40,8 +40,10 @@ module Navbar =
 
     [<CLIMutable>]
     type CreateOrgRequest =
-        { Name: string; Slug: string
-          FirstAdminName: string option; FirstAdminEmail: string option }
+        { [<Required; MinLength(1)>] Name: string
+          [<Required; MinLength(1)>] Slug: string
+          FirstAdminName: string option
+          FirstAdminEmail: string option }
 
     type CreateOrgResponse = { OrganizationId: string; Slug: string; AdminHolderId: string }
 
@@ -93,7 +95,7 @@ module Navbar =
             | _ -> Some entries
 
         { User =
-            { UserId = auth.UserId.Value; HolderId = auth.ActiveOrg.HolderId.Str
+            { UserId = auth.UserId.Str; HolderId = auth.ActiveOrg.HolderId.Str
               FullName = auth.FullName; Email = auth.Email; AvatarUrl = auth.AvatarUrl
               Role = int auth.ActiveOrg.Role; AttendanceStatus = int auth.ActiveOrg.AttendanceStatus
               IsSuperAdmin = auth.IsSuperAdmin }
@@ -110,15 +112,15 @@ module Navbar =
         taskResult {
             let! name, slug =
                 validation {
-                    let! n = Some req.Name |> Parse.nonEmpty "name" 
-                    and! s = Some req.Slug |>Parse.nonEmpty "slug" 
+                    let! n = Parse.nonEmpty "name" (Some req.Name)
+                    and! s = Parse.nonEmpty "slug" (Some req.Slug)
                     return n.Value, s.Value.ToLowerInvariant()
                 }
                 |> Result.mapError ApiError.fromFields
 
             let adminEmail = trimOpt req.FirstAdminEmail |> Option.map _.ToLowerInvariant() |> Option.defaultValue (auth.Email.ToLowerInvariant())
             let adminName = trimOpt req.FirstAdminName |> Option.defaultValue auth.FullName
-            let creatorUid = if String.Equals(adminEmail, auth.Email, StringComparison.OrdinalIgnoreCase) then Some auth.UserId.Value else None
+            let creatorUid = if String.Equals(adminEmail, auth.Email, StringComparison.OrdinalIgnoreCase) then Some auth.UserId.Str else None
 
             return! db.WriteTxAsync(fun conn tx ->
                 task {

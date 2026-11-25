@@ -27,18 +27,17 @@ POST {{baseUrl}}/auth/dev-login
 Content-Type: application/json
 
 {
-  "email": "{{memberEmail}}",
-  "full_name": "Field Operator"
+  "email": "{{adminEmail}}"
 }
 
 ### 5. Page 2 — My Custody (using X-Dev-User-Email header, no UI needed)
 GET {{baseUrl}}/pages/my-custody
-X-Dev-User-Email: {{memberEmail}}
+# X-Dev-User-Email: {{memberEmail}}
 
 ### 6. Page 2 — My Custody with X-Holders-Hash (replace hash from step 5 to get holders_directory: null)
 GET {{baseUrl}}/pages/my-custody
-X-Dev-User-Email: {{memberEmail}}
-X-Holders-Hash: PASTE_HASH_FROM_STEP_5
+# X-Dev-User-Email: {{memberEmail}}
+# X-Holders-Hash: fe8cd2dac2654142
 
 ### 7. Page 5 — Quick Relocation Bootstrap (last 20 relocated items)
 GET {{baseUrl}}/pages/items-relocate
@@ -53,9 +52,20 @@ Content-Type: application/json
   "q": "PRC"
 }
 
+### 8b. Page 5 — Search Serialized Items using HTTP QUERY method
+POST {{baseUrl}}/serialized-items/lookup
+# X-Dev-User-Email: {{adminEmail}}
+Content-Type: application/json
+X-Http-Method-Override: QUERY
+
+{
+  "q": "PRC"
+}
+
+
 ### 9. Page 5 — Relocate Serialized Item (Physical Location only, no custody change)
 POST {{baseUrl}}/serialized-items/{{radio1Id}}/relocate
-X-Dev-User-Email: {{adminEmail}}
+# X-Dev-User-Email: {{adminEmail}}
 Content-Type: application/json
 
 {
