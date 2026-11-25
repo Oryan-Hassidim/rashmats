@@ -4,14 +4,14 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 
 CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    google_id TEXT UNIQUE NOT NULL,
-    email TEXT UNIQUE NOT NULL,
-    full_name TEXT NOT NULL,
-    avatar_url TEXT NULL,
+    id          TEXT PRIMARY KEY,
+    google_id   TEXT UNIQUE NOT NULL,
+    email       TEXT UNIQUE NOT NULL,
+    full_name   TEXT NOT NULL,
+    avatar_url  TEXT NULL,
     is_super_admin INTEGER NOT NULL DEFAULT 0,
-    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_id ON users(google_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email);

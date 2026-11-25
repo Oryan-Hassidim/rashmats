@@ -1,4 +1,3 @@
 <Solution>
-  <Project Path="src/Rashmatz.Server.fsproj" />
-  <Project Path="tests/Rashmatz.Server.Tests.fsproj" />
+
 </Solution>
