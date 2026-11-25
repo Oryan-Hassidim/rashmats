@@ -1,0 +1,290 @@
+PROJECT: Rashmatz Inventory & Custody Management
+TARGET: SQLite-first, PostgreSQL-compatible
+GOAL: Produce a complete production-ready schema.sql
+
+====================================================================
+HIGH PRIORITY FIXES
+====================================================================
+
+1. ADD CHECK CONSTRAINTS FOR ALL ENUMS
+
+custody_holders.holder_type
+    CHECK (holder_type IN (0,1))
+
+custody_holders.role
+    CHECK (role IN (0,1,2))
+
+custody_holders.attendance_status
+    CHECK (attendance_status IN (0,1,2))
+
+item_types.tracking_type
+    CHECK (tracking_type IN (0,1))
+
+serialized_items.status
+    CHECK (status IN (0,1,2,3))
+
+audit_sessions.status
+    CHECK (status IN (0,1,2))
+
+audit_item_records.scan_status
+    CHECK (scan_status IN (0,1,2,3))
+
+====================================================================
+2. ADD CHECK CONSTRAINTS FOR BOOLEANS
+====================================================================
+
+For all boolean-like INTEGER columns:
+
+CHECK (is_active IN (0,1))
+CHECK (is_super_admin IN (0,1))
+
+Apply to:
+- users.is_super_admin
+- organizations.is_active
+- custody_holders.is_active
+- transfer_templates.is_active
+
+====================================================================
+3. EMAILS AND SLUGS SHOULD BE CASE INSENSITIVE
+====================================================================
+
+Use:
+
+COLLATE NOCASE
+
+for:
+
+users.email
+organizations.slug
+custody_holders.invited_email
+
+====================================================================
+4. EXPLICIT ON DELETE BEHAVIOR
+====================================================================
+
+Never rely on SQLite defaults.
+
+Use ON DELETE CASCADE for true child entities:
+
+departments -> organizations
+certifications -> organizations
+item_categories -> organizations
+item_types -> organizations
+transfer_templates -> organizations
+audit_sessions -> organizations
+
+Use ON DELETE SET NULL for optional references:
+
+department_id
+user_id
+category_id
+transfer_template_id
+active_org_id
+
+Use ON DELETE CASCADE for weak entities:
+
+transfer_template_lines
+custody_transfer_lines
+audit_item_records
+
+====================================================================
+5. PREVENT SELF TRANSFERS
+====================================================================
+
+custody_transfers:
+
+CHECK (
+    source_holder_id IS NULL
+    OR dest_holder_id IS NULL
+    OR source_holder_id <> dest_holder_id
+)
+
+====================================================================
+6. HOLDER CERTIFICATIONS
+====================================================================
+
+Prevent duplicates:
+
+UNIQUE(holder_id, certification_id)
+
+Add:
+
+CHECK (
+    expires_at IS NULL
+    OR expires_at >= acquired_at
+)
+
+====================================================================
+7. ITEM TYPES
+====================================================================
+
+Prevent duplicate equipment definitions:
+
+UNIQUE(organization_id, name)
+
+====================================================================
+8. TRANSFER TEMPLATE LINES
+====================================================================
+
+Prevent duplicate item types within a template:
+
+UNIQUE(template_id, item_type_id)
+
+====================================================================
+9. DATE CONSISTENCY CHECKS
+====================================================================
+
+certifications:
+
+CHECK (
+    validity_months IS NULL
+    OR validity_months > 0
+)
+
+audit_sessions:
+
+CHECK (
+    closed_at IS NULL
+    OR closed_at >= opened_at
+)
+
+holder_certifications:
+
+CHECK (
+    expires_at IS NULL
+    OR expires_at >= acquired_at
+)
+
+====================================================================
+10. LOCATION LOG VALIDATION
+====================================================================
+
+serialized_item_location_logs:
+
+CHECK (
+    to_location_holder_id IS NOT NULL
+    OR (
+        to_location_custom_text IS NOT NULL
+        AND TRIM(to_location_custom_text) <> ''
+    )
+)
+
+====================================================================
+11. TRANSFER LINE VALIDATION
+====================================================================
+
+Keep existing XOR validation:
+
+Either:
+- serialized_item_id
+OR
+- item_type_id
+
+Never both.
+
+Serialized item must always have quantity = 1.
+
+====================================================================
+INDEXING IMPROVEMENTS
+====================================================================
+
+Add organization indexes on major tenant tables:
+
+custody_holders(organization_id)
+certifications(organization_id)
+item_categories(organization_id)
+serialized_items(organization_id)
+
+Add:
+
+CREATE INDEX idx_user_sessions_expires
+ON user_sessions(expires_at);
+
+====================================================================
+UPDATED_AT AUTOMATION
+====================================================================
+
+All mutable tables should have:
+
+created_at
+updated_at
+
+Use ISO8601 timestamps:
+
+DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+
+instead of CURRENT_TIMESTAMP.
+
+Add automatic updated_at triggers for:
+
+users
+organizations
+departments
+custody_holders
+certifications
+holder_certifications
+item_categories
+item_types
+serialized_items
+inventory_stocks
+transfer_templates
+audit_sessions
+audit_item_records
+
+Trigger pattern:
+
+CREATE TRIGGER ... AFTER UPDATE
+WHEN NEW.updated_at = OLD.updated_at
+BEGIN
+    UPDATE ...
+    SET updated_at =
+        strftime('%Y-%m-%dT%H:%M:%fZ','now')
+    WHERE id = OLD.id;
+END;
+
+====================================================================
+DO NOT ADD
+====================================================================
+
+Do NOT introduce:
+
+- Composite primary keys everywhere
+- Composite tenant-aware foreign keys
+- Event sourcing
+- Soft delete framework
+- Organization_id inside every foreign key
+- Over-engineering
+
+Keep:
+
+id TEXT PRIMARY KEY
+
+(UUIDv7 stored as TEXT)
+
+====================================================================
+IMMUTABLE TABLES
+====================================================================
+
+The following are append-only and should NOT contain updated_at triggers:
+
+custody_transfers
+custody_transfer_lines
+serialized_item_location_logs
+user_sessions
+idempotency_keys
+transfer_template_lines
+
+====================================================================
+OVERALL DESIGN DECISION
+====================================================================
+
+Keep schema simple.
+
+SQLite-first.
+PostgreSQL-friendly.
+Single-column UUID primary keys.
+Strong CHECK constraints.
+Explicit ON DELETE actions.
+Automatic updated_at maintenance.
+Lean indexing.
+No unnecessary complexity.

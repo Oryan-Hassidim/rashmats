@@ -1,3 +1,5 @@
 <Solution>
-
+  <Folder Name="/src/">
+    <Project Path="src/Rashmatz.fsproj" />
+  </Folder>
 </Solution>
